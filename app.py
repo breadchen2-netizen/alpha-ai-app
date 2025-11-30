@@ -11,8 +11,9 @@ import numpy as np
 
 # ==========================================
 # 🔑【金鑰設定區】
-GEMINI_API_KEY_GLOBAL = "AIzaSyASAWQEObSZZrz_rbQ_HUYHzwFbyheT1G0"
-FINMIND_TOKEN_GLOBAL = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJkYXRlIjoiMjAyNS0xMS0yNiAyMDo1NzoyMSIsInVzZXJfaWQiOiJCcmVhZCIsImlwIjoiMzYuMjMwLjE0MS4zNiJ9.PnhX3E9NZZq57i7UqMzzbtIYuEfP6pUaZ2knSQvMybw"
+# ✅ 安全寫法
+GEMINI_API_KEY_GLOBAL = st.secrets["GEMINI_KEY"]
+FINMIND_TOKEN_GLOBAL = st.secrets["FINMIND_TOKEN"]
 # ==========================================
 
 st.set_page_config(page_title="Alpha Strategist AI", layout="wide", page_icon="🚀")
@@ -356,5 +357,6 @@ if run_analysis:
                                 response_container.markdown(full_response)
                             status.update(label="✅ 分析完成", state="complete", expanded=True)
                     except Exception as e: st.error(f"AI Error: {e}")
+
 
             else: st.error("⚠️ 查無數據")
