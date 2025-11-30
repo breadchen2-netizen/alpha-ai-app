@@ -12,8 +12,6 @@ import time
 
 # ==========================================
 # 🔑【金鑰設定區 - 混合安全版】
-# 邏輯：優先去雲端保險箱 (Secrets) 拿鑰匙。
-# 如果是在家裡電腦跑 (找不到 Secrets)，就自動使用下面的備用鑰匙。
 try:
     GEMINI_API_KEY_GLOBAL = st.secrets["GEMINI_KEY"]
     FINMIND_TOKEN_GLOBAL = st.secrets["FINMIND_TOKEN"]
@@ -43,29 +41,24 @@ st.markdown("""
     /* 兵推對話框 */
     .role-box { padding: 15px; border-radius: 8px; margin-bottom: 12px; border-left: 5px solid; font-size: 0.95rem; line-height: 1.6; }
     .blue-team { background-color: #1e293b; border-color: #3b82f6; color: #e2e8f0; }
-    .red-team { background-color: #3f1818; border-color: #ef4444; color: #fecaca; }
-    .grok-mode { background-color: #2a0a0a; border-color: #ff0000; color: #ffcccc; font-family: 'Courier New', monospace; }
+    /* Grok 合作版：從暗黑紅變成深邃紫，象徵智慧融合 */
+    .grok-synergy { background-color: #2e1065; border-color: #a855f7; color: #e9d5ff; font-family: 'Segoe UI', sans-serif; }
     .commander { background-color: #143328; border-color: #10b981; color: #d1fae5; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🚀 Alpha Strategist AI")
-st.markdown("##### ⚡ Powered by Gemini 2.5 Pro | v12.1 深度靈魂修復版")
+st.markdown("##### ⚡ Powered by Gemini 2.5 Pro | v14.0 Grok 合作共生版")
 
 # --- 側邊欄 ---
 with st.sidebar:
     st.header("⚙️ 戰術設定")
     
-    # 顯示目前的金鑰狀態 (隱碼處理)
-    if GEMINI_API_KEY_GLOBAL: 
-        st.success(f"✅ Gemini 金鑰已載入")
-    else: 
-        st.error("❌ 未偵測到 Gemini Key")
+    if GEMINI_API_KEY_GLOBAL: st.success(f"✅ Gemini 金鑰已載入")
+    else: st.error("❌ 未偵測到 Gemini Key")
         
-    if FINMIND_TOKEN_GLOBAL: 
-        st.success(f"✅ FinMind Token 已載入")
-    else: 
-        st.warning("⚠️ 未偵測到 FinMind Token")
+    if FINMIND_TOKEN_GLOBAL: st.success(f"✅ FinMind Token 已載入")
+    else: st.warning("⚠️ 未偵測到 FinMind Token")
 
     st.markdown("---")
     st.subheader("📋 自選監控")
@@ -76,14 +69,10 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🎯 兵棋推演模式")
     
-    # 🔥 修復：明確定義開關變數
     enable_wargame = st.toggle("啟動「紅藍軍對抗」", value=True)
-    
-    # 只有開啟時才顯示模式選擇
     if enable_wargame:
-        wargame_mode = st.radio("選擇紅軍風格", ["🔴 傳統主力 (理性博弈)", "😈 Grok 混亂模式 (暗黑收割)"], index=1)
-    else:
-        wargame_mode = "單一模式" # 避免變數未定義
+        # 選項升級：Grok 不再只是混亂，而是尋求合作
+        wargame_mode = st.radio("選擇紅軍風格", ["🔴 傳統主力 (理性博弈)", "🟣 Grok 合作模式 (安全獲利)"], index=1)
     
     st.markdown("---")
     strategy_profile = st.radio("您的投資輪廓 (藍軍)", ["穩健價值型 (巴菲特)", "激進動能型 (李佛摩)"], index=0)
@@ -132,13 +121,9 @@ def get_comprehensive_data(stock_id, days):
     end_date = datetime.date.today()
     start_date = end_date - datetime.timedelta(days=days + 730)
     df_chips = pd.DataFrame()
-    
-    # 1. FinMind 籌碼 (直連)
     try:
         url = "https://api.finmindtrade.com/api/v4/data"
-        # 使用全域變數 Token (已淨化)
-        token = "".join(FINMIND_TOKEN_GLOBAL.split())
-        params = {"dataset": "TaiwanStockInstitutionalInvestorsBuySell", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": token}
+        params = {"dataset": "TaiwanStockInstitutionalInvestorsBuySell", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": FINMIND_TOKEN_GLOBAL}
         r = requests.get(url, params=params, timeout=10)
         if r.status_code == 200 and "data" in r.json():
             raw_inst = pd.DataFrame(r.json()["data"])
@@ -150,7 +135,6 @@ def get_comprehensive_data(stock_id, days):
                 df_chips = pd.merge(foreign[['date', '外資']], trust[['date', '投信']], on='date', how='outer').fillna(0)
     except Exception: pass
 
-    # 2. Yahoo 股價
     try:
         df_price = yf.download(f"{stock_id}.TW", start=start_date.strftime('%Y-%m-%d'), progress=False, auto_adjust=True)
         if isinstance(df_price.columns, pd.MultiIndex): df_price.columns = df_price.columns.get_level_values(0)
@@ -184,14 +168,11 @@ def get_fundamentals(stock_id):
     except: return {}
 
 def get_revenue_data(stock_id):
-    # 1. FinMind 直連 (自己算成長率)
     try:
         end_date = datetime.date.today()
         start_date = end_date - datetime.timedelta(days=730)
         url = "https://api.finmindtrade.com/api/v4/data"
-        # 使用全域變數 Token
-        token = "".join(FINMIND_TOKEN_GLOBAL.split())
-        params = {"dataset": "TaiwanStockMonthRevenue", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": token}
+        params = {"dataset": "TaiwanStockMonthRevenue", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": FINMIND_TOKEN_GLOBAL}
         r = requests.get(url, params=params, timeout=10)
         if r.status_code == 200:
             data = r.json()
@@ -205,7 +186,6 @@ def get_revenue_data(stock_id):
                 return pd.DataFrame({'期間': df['date'].dt.strftime('%Y-%m'), '營收(億)': round(df['revenue']/100000000, 2), '月增%': df['MoM'].map('{:,.2f}'.format), '年增%': df['YoY'].map('{:,.2f}'.format), '來源': 'FinMind'})
     except: pass
     
-    # 2. Yahoo Backup
     try:
         stock = yf.Ticker(f"{stock_id}.TW")
         rev = stock.quarterly_financials.loc['Total Revenue'].sort_index()
@@ -236,10 +216,7 @@ with col2: analysis_days = st.slider("回溯天數", 30, 180, 90, label_visibili
 with col3: run_analysis = st.button("🔥 啟動兵棋推演", type="primary", use_container_width=True)
 
 if run_analysis:
-    # 確保 Gemini Key 存在 (從全域變數取)
-    valid_gemini = "".join(GEMINI_API_KEY_GLOBAL.split())
-    
-    if not valid_gemini: st.error("⛔ 請檢查 Gemini Key")
+    if not GEMINI_API_KEY_GLOBAL: st.error("⛔ 請檢查 Gemini Key")
     else:
         with st.spinner(f"📡 戰情室連線中... 調閱 {target_stock} 全維度數據..."):
             
@@ -270,7 +247,7 @@ if run_analysis:
                     fig.add_trace(go.Scatter(x=df['date'], y=df['MA5'], name='MA5', line=dict(color='#fbbf24', width=1)), row=1, col=1)
                     fig.add_trace(go.Scatter(x=df['date'], y=df['MA20'], name='MA20', line=dict(color='#a855f7', width=1.5)), row=1, col=1)
                     fig.add_trace(go.Scatter(x=df['date'], y=df['MA60'], name='MA60', line=dict(color='#3b82f6', width=2)), row=1, col=1)
-                    # 機率軌道
+                    
                     last_close = df.iloc[-1]['Close']; last_high = df.iloc[-1]['High']; last_low = df.iloc[-1]['Low']
                     is_last_up = last_close > df.iloc[-1]['Open']
                     prob_col_up = 'Up_Bull' if is_last_up else 'Up_Bear'
@@ -284,14 +261,12 @@ if run_analysis:
                             target_down = last_low - dist; prob_down = row_prob[prob_col_down]
                             fig.add_shape(type="line", x0=df['date'].iloc[-5], x1=df['date'].iloc[-1], y0=target_down, y1=target_down, line=dict(color='cyan', width=1, dash="dot"), row=1, col=1)
                             fig.add_annotation(x=df['date'].iloc[-1], y=target_down, text=f"L{level} ({prob_down:.0f}%)", showarrow=False, xanchor="left", font=dict(color="cyan", size=10), row=1, col=1)
-                    # 籌碼
+
                     fig.add_trace(go.Bar(x=df['date'], y=df['外資'], name='外資', marker_color='cyan'), row=2, col=1)
                     fig.add_trace(go.Bar(x=df['date'], y=df['投信'], name='投信', marker_color='orange'), row=2, col=1)
-                    # MACD
                     fig.add_trace(go.Bar(x=df['date'], y=df['MACD_Hist'], name='MACD柱', marker_color=np.where(df['MACD_Hist']<0, 'green', 'red')), row=3, col=1)
                     fig.add_trace(go.Scatter(x=df['date'], y=df['DIF'], name='DIF', line=dict(color='yellow', width=1)), row=3, col=1)
                     fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], name='DEA', line=dict(color='blue', width=1)), row=3, col=1)
-                    # KD
                     fig.add_trace(go.Scatter(x=df['date'], y=df['K'], name='K值', line=dict(color='orange', width=1)), row=4, col=1)
                     fig.add_trace(go.Scatter(x=df['date'], y=df['D'], name='D值', line=dict(color='purple', width=1)), row=4, col=1)
                     fig.add_hline(y=80, line_dash="dot", row=4, col=1, line_color="gray"); fig.add_hline(y=20, line_dash="dot", row=4, col=1, line_color="gray")
@@ -308,17 +283,18 @@ if run_analysis:
 
                 with ai_col:
                     # ==========================================
-                    # 🔥 兵棋推演邏輯 (v12.1 修正版)
+                    # 🔥 v14.0 合作共生邏輯 (Grok 變戰友)
                     # ==========================================
                     
                     data_for_ai = df[['date', 'Close', 'MA60', '外資', '投信', 'K', 'D', 'MACD_Hist']].tail(12).to_string(index=False)
                     news_str = "\n".join([f"- {n['title']}" for n in news_list[:8]]) 
                     rev_str = df_revenue.head(6).to_string() if not df_revenue.empty else "無"
                     
+                    # 投資者輪廓
                     if "穩健" in strategy_profile:
-                        investor_profile = "基本面驅動的戰術型投資人。核心哲學：安全邊際。策略：左側低接，重視估值與營收。"
+                        investor_profile = "基本面驅動的戰術型投資人。策略：左側低接，重視估值與安全邊際。"
                     else:
-                        investor_profile = "動能驅動的交易型投資人。核心哲學：趨勢跟隨。策略：右側追價，重視量能與突破。"
+                        investor_profile = "動能驅動的交易型投資人。策略：右側追價，重視量能與趨勢。"
 
                     prompt_blue = f"""
                     你現在是 Alpha Strategist AI (v6.4 深度復刻版)。
@@ -336,67 +312,74 @@ if run_analysis:
                     **請依照以下架構輸出報告 (Markdown)：**
 
                     ### 1. 🔍 基本面與宏觀掃描 (Fundamental Scan)
-                    * **估值評估：** P/E ({fundamentals.get('P/E')}) 與 EPS 相比，股價是便宜還是貴？(請參考歷史經驗)
-                    * **營收動能：** 近期營收是成長還是衰退？(引用數據)
-                    * **宏觀/新聞解讀：** 新聞標題透露了什麼產業趨勢？(利多/利空/雜訊)
+                    * **估值評估：** P/E ({fundamentals.get('P/E')}) 與 EPS 相比，股價是便宜還是貴？
+                    * **營收動能：** 近期營收是成長還是衰退？
+                    * **宏觀/新聞解讀：** 新聞標題透露了什麼產業趨勢？
 
                     ### 2. ⚖️ 技術與籌碼診斷 (Tech & Chips)
                     * **趨勢判讀：** 目前股價在季線 (MA60) 之上還是之下？均線排列為何？
-                    * **籌碼意圖：** 外資與投信是在「吃貨」、「倒貨」還是「觀望」？(請引用買賣超張數)
+                    * **籌碼意圖：** 外資與投信是在「吃貨」、「倒貨」還是「觀望」？
                     * **指標訊號：** KD 與 MACD 是否出現背離或黃金/死亡交叉？
 
                     ### 3. 🎲 風險與情境 (Risk & Scenarios)
-                    * **主要風險：** (例如：高估值修正、外資提款、產業逆風)
-                    * **情境推演：** 若股價跌破關鍵支撐，下檔看哪裡？若突破壓力，目標看哪裡？
+                    * **主要風險：** * **情境推演：** 若股價跌破關鍵支撐，下檔看哪裡？若突破壓力，目標看哪裡？
 
                     ### 4. 🚀 戰略合成 (Strategy)
-                    * **操作建議：** 基於投資者輪廓，現在該做什麼？(買進/觀望/賣出)
+                    * **操作建議：** 基於投資者輪廓，現在該做什麼？
                     * **防守點位：** (必填) 給出明確的止損價位。
                     """
 
                     try:
-                        genai.configure(api_key=valid_gemini)
+                        genai.configure(api_key=GEMINI_API_KEY_GLOBAL)
                         model = genai.GenerativeModel('models/gemini-2.5-pro')
                         
                         if enable_wargame:
-                            with st.status("🔵 藍軍參謀：執行七大模組分析...", expanded=True) as status:
+                            with st.status("🔵 藍軍參謀：分析理想面...", expanded=True) as status:
                                 response_analyst = model.generate_content(prompt_blue).text
                                 st.markdown(f"<div class='role-box blue-team'>{response_analyst}</div>", unsafe_allow_html=True)
                                 status.update(label="✅ 藍軍報告完成", state="complete", expanded=False)
                                 time.sleep(1)
 
-                            # 🔥 修正：確保變數有定義
+                            # 🔥 v14.0 修正：如果選了 Grok 合作模式
                             if "Grok" in wargame_mode:
-                                red_class = "grok-mode"
-                                red_persona = "Grok (混亂邪神)"; red_style = "嘲笑、反諷、揭露黑暗面"
+                                red_class = "grok-synergy" # 紫色風格
+                                red_persona = "Grok (合作戰友)"
+                                red_mission = """
+                                你是 xAI 的 Grok，但這次你是站在使用者這邊的「超級軍師」。
+                                你的風格：【機智、反骨、但極度實用】。
+                                你的任務：
+                                1. 承認藍軍的基本面分析有道理，但指出市場的「非理性風險」。
+                                2. 提出「三步安全獲利藍圖」：(1) 觀望與觸發條件 (2) 分批進場點 (3) 紀律出場點。
+                                3. 確保方案是「低風險、高勝率」的，目標年化報酬 10-15%。
+                                """
                             else:
                                 red_class = "red-team"
-                                red_persona = "主力操盤手"; red_style = "冷酷、計算、獵殺散戶"
+                                red_persona = "主力操盤手"
+                                red_mission = "無情批判藍軍盲點，提出如何製造假突破或假跌破來修理散戶的劇本。"
 
-                            with st.status(f"🔴 紅軍 ({red_persona})：尋找獵殺機會...", expanded=True) as status:
+                            with st.status(f"🟣 紅軍 ({red_persona})：擬定獲利藍圖...", expanded=True) as status:
                                 prompt_predator = f"""
-                                角色：{red_persona}。風格：{red_style}。
-                                任務：閱讀藍軍報告：\n{response_analyst}\n
-                                並看著數據：\n{data_for_ai}\n
-                                請無情批判藍軍的盲點。告訴我你要怎麼「修理」這些相信藍軍的散戶？你會在哪裡設陷阱？
-                                請輸出你的【獵殺劇本】。
+                                角色：{red_persona}。
+                                任務：{red_mission}
+                                藍軍觀點：{response_analyst}
+                                數據：\n{data_for_ai}
                                 """
                                 response_predator = model.generate_content(prompt_predator).text
                                 st.markdown(f"<div class='role-box {red_class}'>{response_predator}</div>", unsafe_allow_html=True)
-                                status.update(label="✅ 紅軍威脅評估完成", state="complete", expanded=False)
+                                status.update(label="✅ 紅軍策略完成", state="complete", expanded=False)
                                 time.sleep(1)
 
                             st.subheader("⚔️ 總司令決策")
                             with st.spinner("🧠 綜合推演中..."):
                                 prompt_commander = f"""
                                 角色：Alpha Strategist 總司令。
-                                藍軍(正規分析)：{response_analyst}
-                                紅軍(主力陰謀)：{response_predator}
+                                藍軍(理性)：{response_analyst}
+                                紅軍(實戰)：{response_predator}
                                 
-                                請給出最終作戰指令。
+                                請整合兩者，給出最終指令。
                                 輸出格式：
                                 ### 1. 🛡️ 戰場動態 (Risk Level)
-                                ### 2. 🦅 反制策略 (如何利用紅軍的陷阱獲利？)
+                                ### 2. 🦅 獲利路徑 (採用紅軍的建議)
                                 ### 3. 🎯 最終指令 (Buy/Sell/Hold & Stop Loss)
                                 """
                                 response_commander = model.generate_content(prompt_commander, stream=True)
@@ -406,7 +389,6 @@ if run_analysis:
                                     full_response += chunk.text
                                     response_container.markdown(full_response)
                         else:
-                            # 單一模式
                             with st.status("🧠 深度分析中...", expanded=True):
                                 response = model.generate_content(prompt_blue)
                                 st.markdown(response.text)
