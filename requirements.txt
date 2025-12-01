@@ -5,3 +5,5 @@ google-generativeai
 plotly
 requests
 feedparser
+finmind
+duckduckgo-search
