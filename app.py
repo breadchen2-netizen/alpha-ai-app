@@ -12,18 +12,13 @@ import time
 
 # ==========================================
 # 🔑【金鑰設定區 - 混合安全版】
-# 邏輯：優先去雲端保險箱 (Secrets) 拿鑰匙。
-# 如果是在家裡電腦跑 (找不到 Secrets)，就自動使用下面的備用鑰匙。
 try:
     GEMINI_API_KEY_GLOBAL = st.secrets["GEMINI_KEY"]
     FINMIND_TOKEN_GLOBAL = st.secrets["FINMIND_TOKEN"]
 except:
-    # --- 本地端備用鑰匙 (已填入您提供的正確版本) ---
-    GEMINI_API_KEY_GLOBAL = "AIzaSyASAWQEObSZZrz_rbQ_HUYHzwFbyheT1G0"
-    # 正確的長 Token (結尾 SQvMybw)
-    T1 = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJkYXRlIjoiMjAyNS0xMS0yNiAyMDo1NzoyMSIsInVzZXJfaWQiOiJCcmVhZCIsImlwIjoiMzYuMjMwLjE0MS4zNiJ9"
-    T2 = ".PnhX3E9NZZq57i7UqMzzbtIYuEfP6pUaZ2knSQvMybw"
-    FINMIND_TOKEN_GLOBAL = T1 + T2
+    # 如果找不到保險箱(例如第一次在本地跑)，先給空值避免報錯
+    GEMINI_API_KEY_GLOBAL = ""
+    FINMIND_TOKEN_GLOBAL = ""
 # ==========================================
 
 st.set_page_config(page_title="Alpha Strategist AI", layout="wide", page_icon="🚀")
@@ -46,29 +41,24 @@ st.markdown("""
     /* 兵推對話框 */
     .role-box { padding: 15px; border-radius: 8px; margin-bottom: 12px; border-left: 5px solid; font-size: 0.95rem; line-height: 1.6; }
     .blue-team { background-color: #1e293b; border-color: #3b82f6; color: #e2e8f0; }
+    .grok-synergy { background-color: #2e1065; border-color: #a855f7; color: #e9d5ff; font-family: 'Segoe UI', sans-serif; }
     .red-team { background-color: #3f1818; border-color: #ef4444; color: #fecaca; }
-    .grok-mode { background-color: #2a0a0a; border-color: #ff0000; color: #ffcccc; font-family: 'Courier New', monospace; }
     .commander { background-color: #143328; border-color: #10b981; color: #d1fae5; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🚀 Alpha Strategist AI")
-st.markdown("##### ⚡ Powered by Gemini 2.5 Pro | v12.2 變數修復版")
+st.markdown("##### ⚡ Powered by Gemini 2.5 Pro | v15.0 精準財報版")
 
 # --- 側邊欄 ---
 with st.sidebar:
     st.header("⚙️ 戰術設定")
     
-    # 顯示目前的金鑰狀態 (隱碼處理)
-    if GEMINI_API_KEY_GLOBAL: 
-        st.success(f"✅ Gemini 金鑰已載入")
-    else: 
-        st.error("❌ 未偵測到 Gemini Key")
+    if GEMINI_API_KEY_GLOBAL: st.success(f"✅ Gemini 金鑰已載入")
+    else: st.error("❌ 未偵測到 Gemini Key")
         
-    if FINMIND_TOKEN_GLOBAL: 
-        st.success(f"✅ FinMind Token 已載入")
-    else: 
-        st.warning("⚠️ 未偵測到 FinMind Token")
+    if FINMIND_TOKEN_GLOBAL: st.success(f"✅ FinMind Token 已載入")
+    else: st.warning("⚠️ 未偵測到 FinMind Token")
 
     st.markdown("---")
     st.subheader("📋 自選監控")
@@ -79,11 +69,10 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🎯 兵棋推演模式")
     
-    # 開關
     enable_wargame = st.toggle("啟動「紅藍軍對抗」", value=True)
     
     if enable_wargame:
-        wargame_mode = st.radio("選擇紅軍風格", ["🔴 傳統主力 (理性博弈)", "😈 Grok 混亂模式 (暗黑收割)"], index=1)
+        wargame_mode = st.radio("選擇紅軍風格", ["🔴 傳統主力 (理性博弈)", "🟣 Grok 合作模式 (安全獲利)"], index=1)
     else:
         wargame_mode = "單一模式"
     
@@ -134,10 +123,9 @@ def get_comprehensive_data(stock_id, days):
     end_date = datetime.date.today()
     start_date = end_date - datetime.timedelta(days=days + 730)
     df_chips = pd.DataFrame()
-    
-    # FinMind 籌碼 (使用正確的 Token)
     try:
         url = "https://api.finmindtrade.com/api/v4/data"
+        # 使用全域變數 Token (去除隱形字元)
         token = "".join(FINMIND_TOKEN_GLOBAL.split())
         params = {"dataset": "TaiwanStockInstitutionalInvestorsBuySell", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": token}
         r = requests.get(url, params=params, timeout=10)
@@ -172,15 +160,66 @@ def get_comprehensive_data(stock_id, days):
         merged['投信'] = 0
     return merged.tail(days), df_chips, df_probs
 
+# 🔥 新增：從 FinMind 抓取精準的 P/E 和 殖利率
+def get_finmind_per(stock_id):
+    try:
+        end_date = datetime.date.today()
+        # 往前抓 7 天，確保有資料 (避開假日)
+        start_date = end_date - datetime.timedelta(days=7)
+        url = "https://api.finmindtrade.com/api/v4/data"
+        token = "".join(FINMIND_TOKEN_GLOBAL.split())
+        
+        # Dataset: TaiwanStockPER (個股本益比)
+        params = {
+            "dataset": "TaiwanStockPER",
+            "data_id": stock_id,
+            "start_date": start_date.strftime('%Y-%m-%d'),
+            "end_date": end_date.strftime('%Y-%m-%d'),
+            "token": token
+        }
+        r = requests.get(url, params=params, timeout=5)
+        if r.status_code == 200 and "data" in r.json():
+            data = r.json()["data"]
+            if data:
+                # 取最新的一筆
+                latest = data[-1]
+                return {
+                    "P/E": latest.get("PER", "N/A"),
+                    "Yield": latest.get("dividend_yield", "N/A"),
+                    "P/B": latest.get("PBR", "N/A")
+                }
+    except: pass
+    return None # 如果抓不到，回傳 None
+
 def get_fundamentals(stock_id):
+    # 1. 優先嘗試 FinMind (官方準確數據)
+    finmind_data = get_finmind_per(stock_id)
+    
     try:
         stock = yf.Ticker(f"{stock_id}.TW")
         info = stock.info
-        raw_yield = info.get('dividendYield', 0)
-        fmt_yield = round(raw_yield * 100, 2) if raw_yield and raw_yield < 1 else (round(raw_yield, 2) if raw_yield else 'N/A')
-        pe = round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A'
-        eps = round(info.get('trailingEps', 0), 2) if info.get('trailingEps') else 'N/A'
-        return {"P/E": pe, "EPS": eps, "Yield": fmt_yield, "Cap": round(info.get('marketCap', 0)/100000000, 2) if info.get('marketCap') else 'N/A', "Name": info.get('longName', stock_id), "Sector": info.get('sector', 'N/A'), "Summary": info.get('longBusinessSummary', '暫無描述')}
+        
+        # 2. 如果有 FinMind 數據，優先使用
+        if finmind_data:
+            pe = finmind_data["P/E"]
+            yield_val = finmind_data["Yield"]
+            eps = "計算中..." # 稍後在主程式計算
+        else:
+            # 3. 備援：如果 FinMind 掛了，退回 Yahoo 數據
+            pe = round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A'
+            eps = round(info.get('trailingEps', 0), 2) if info.get('trailingEps') else 'N/A'
+            raw_yield = info.get('dividendYield', 0)
+            yield_val = round(raw_yield * 100, 2) if raw_yield and raw_yield < 1 else (round(raw_yield, 2) if raw_yield else 'N/A')
+
+        return {
+            "P/E": pe, 
+            "EPS": eps, # 這裡可能還是暫存值
+            "Yield": yield_val, 
+            "Cap": round(info.get('marketCap', 0)/100000000, 2) if info.get('marketCap') else 'N/A', 
+            "Name": info.get('longName', stock_id), 
+            "Sector": info.get('sector', 'N/A'), 
+            "Summary": info.get('longBusinessSummary', '暫無描述')
+        }
     except: return {}
 
 def get_revenue_data(stock_id):
@@ -232,15 +271,23 @@ with col2: analysis_days = st.slider("回溯天數", 30, 180, 90, label_visibili
 with col3: run_analysis = st.button("🔥 啟動兵棋推演", type="primary", use_container_width=True)
 
 if run_analysis:
-    # 確保 Gemini Key 存在
-    gemini_key = "".join(GEMINI_API_KEY_GLOBAL.split())
-    
-    if not gemini_key: st.error("⛔ 請檢查 Gemini Key")
+    if not GEMINI_API_KEY_GLOBAL: st.error("⛔ 請檢查 Gemini Key")
     else:
         with st.spinner(f"📡 戰情室連線中... 調閱 {target_stock} 全維度數據..."):
             
             df, _, df_probs = get_comprehensive_data(target_stock, analysis_days)
-            fundamentals = get_fundamentals(target_stock)
+            fundamentals = get_fundamentals(target_stock) # 這裡可能只有 P/E
+            
+            # 🔥 二次修正 EPS：利用 FinMind 的 P/E 和最新股價反推
+            if df is not None and not df.empty:
+                current_price = df.iloc[-1]['Close']
+                try:
+                    pe_val = float(fundamentals.get('P/E', 0))
+                    if pe_val > 0:
+                        # EPS = 股價 / 本益比
+                        fundamentals['EPS'] = round(current_price / pe_val, 2)
+                except: pass
+            
             news_list = get_google_news(target_stock)
             df_revenue = get_revenue_data(target_stock)
             
@@ -304,7 +351,7 @@ if run_analysis:
 
                 with ai_col:
                     # ==========================================
-                    # 🔥 兵棋推演邏輯 (v12.2 變數修復版)
+                    # 🔥 v14.1 合作共生邏輯 (Grok 變戰友)
                     # ==========================================
                     
                     data_for_ai = df[['date', 'Close', 'MA60', '外資', '投信', 'K', 'D', 'MACD_Hist']].tail(12).to_string(index=False)
@@ -342,8 +389,7 @@ if run_analysis:
                     * **指標訊號：** KD 與 MACD 是否出現背離或黃金/死亡交叉？
 
                     ### 3. 🎲 風險與情境 (Risk & Scenarios)
-                    * **主要風險：** (例如：高估值修正、外資提款、產業逆風)
-                    * **情境推演：** 若股價跌破關鍵支撐，下檔看哪裡？若突破壓力，目標看哪裡？
+                    * **主要風險：** * **情境推演：** 若股價跌破關鍵支撐，下檔看哪裡？若突破壓力，目標看哪裡？
 
                     ### 4. 🚀 戰略合成 (Strategy)
                     * **操作建議：** 基於投資者輪廓，現在該做什麼？(買進/觀望/賣出)
@@ -351,7 +397,7 @@ if run_analysis:
                     """
 
                     try:
-                        genai.configure(api_key=gemini_key)
+                        genai.configure(api_key=GEMINI_API_KEY_GLOBAL)
                         model = genai.GenerativeModel('models/gemini-2.5-pro')
                         
                         if enable_wargame:
@@ -361,34 +407,33 @@ if run_analysis:
                                 status.update(label="✅ 藍軍報告完成", state="complete", expanded=False)
                                 time.sleep(1)
 
-                            # 🔥 修正：確保 red_class 在所有分支都有定義
+                            # 🔥 v14.0 修正：如果選了 Grok 合作模式
                             if "Grok" in wargame_mode:
-                                red_class = "grok-mode"
-                                red_persona = "Grok (混亂邪神)"; red_style = "嘲笑、反諷、揭露黑暗面"
+                                red_class = "grok-synergy" # 紫色合作風格
+                                red_persona = "Grok (合作戰友)"
                                 red_mission = """
-                                你是 xAI 的 Grok。你的風格是：無神論、嘲諷、揭露殘酷真相、講話帶刺。
-                                請用這種語氣批判藍軍：
-                                1. 嘲笑他的「基本面幻覺」（例如：訂單能見度是假的，主力早知道利空）。
-                                2. 嘲笑他的「技術指標」（例如：KD金叉是誘多，MACD背離是騙線）。
-                                3. 提出「星際屠戮劇本」：包括「虛假誘餌」、「黑洞吞噬（破線）」、「殘骸饗宴（低接）」。
-                                4. 給出一個極端低價的「絕望目標價」。
+                                你是 xAI 的 Grok，但這次你是站在使用者這邊的「超級軍師」。
+                                你的風格：【機智、反骨、但極度實用】。
+                                你的任務：
+                                1. 承認藍軍的基本面分析有道理，但指出市場的「非理性風險」。
+                                2. 提出「三步安全獲利藍圖」：(1) 觀望與觸發條件 (2) 分批進場點 (3) 紀律出場點。
+                                3. 確保方案是「低風險、高勝率」的，目標年化報酬 10-15%。
                                 """
                             else:
                                 red_class = "red-team"
-                                red_persona = "主力操盤手"; red_style = "冷酷、計算、獵殺散戶"
+                                red_persona = "主力操盤手"
                                 red_mission = "無情批判藍軍盲點，提出如何製造假突破或假跌破來修理散戶的劇本。"
 
-                            with st.status(f"🔴 紅軍 ({red_persona})：尋找獵殺機會...", expanded=True) as status:
+                            with st.status(f"🟣 紅軍 ({red_persona})：擬定獲利藍圖...", expanded=True) as status:
                                 prompt_predator = f"""
-                                角色：{red_persona}。風格：{red_style}。
+                                角色：{red_persona}。
                                 任務：{red_mission}
                                 藍軍觀點：{response_analyst}
                                 數據：\n{data_for_ai}
-                                請開始你的表演。
                                 """
                                 response_predator = model.generate_content(prompt_predator).text
                                 st.markdown(f"<div class='role-box {red_class}'>{response_predator}</div>", unsafe_allow_html=True)
-                                status.update(label="✅ 紅軍威脅評估完成", state="complete", expanded=False)
+                                status.update(label="✅ 紅軍策略完成", state="complete", expanded=False)
                                 time.sleep(1)
 
                             st.subheader("⚔️ 總司令決策")
@@ -423,7 +468,6 @@ if run_analysis:
                                     full_response += chunk.text
                                     response_container.markdown(full_response)
                         else:
-                            # 單一模式
                             with st.status("🧠 深度分析中...", expanded=True):
                                 response = model.generate_content(prompt_blue)
                                 st.markdown(response.text)
