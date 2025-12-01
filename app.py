@@ -48,7 +48,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 Alpha Strategist AI")
-st.markdown("##### ⚡ Powered by Gemini 2.5 Pro | v15.0 精準財報版")
+st.markdown("##### ⚡ Powered by Gemini 2.5 Pro | v15.1 精準財報修復版")
 
 # --- 側邊欄 ---
 with st.sidebar:
@@ -125,7 +125,6 @@ def get_comprehensive_data(stock_id, days):
     df_chips = pd.DataFrame()
     try:
         url = "https://api.finmindtrade.com/api/v4/data"
-        # 使用全域變數 Token (去除隱形字元)
         token = "".join(FINMIND_TOKEN_GLOBAL.split())
         params = {"dataset": "TaiwanStockInstitutionalInvestorsBuySell", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": token}
         r = requests.get(url, params=params, timeout=10)
@@ -160,16 +159,33 @@ def get_comprehensive_data(stock_id, days):
         merged['投信'] = 0
     return merged.tail(days), df_chips, df_probs
 
-# 🔥 新增：從 FinMind 抓取精準的 P/E 和 殖利率
+# 🔥 修正：恢復成只接受 stock_id
+def get_fundamentals(stock_id):
+    try:
+        stock = yf.Ticker(f"{stock_id}.TW")
+        info = stock.info
+        # 先抓 Yahoo 的數據當備用
+        raw_yield = info.get('dividendYield', 0)
+        fmt_yield = round(raw_yield * 100, 2) if raw_yield and raw_yield < 1 else (round(raw_yield, 2) if raw_yield else 'N/A')
+        pe = round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A'
+        eps = round(info.get('trailingEps', 0), 2) if info.get('trailingEps') else 'N/A'
+        
+        return {
+            "P/E": pe, "EPS": eps, "Yield": fmt_yield, 
+            "Cap": round(info.get('marketCap', 0)/100000000, 2) if info.get('marketCap') else 'N/A', 
+            "Name": info.get('longName', stock_id), 
+            "Sector": info.get('sector', 'N/A'), 
+            "Summary": info.get('longBusinessSummary', '暫無描述')
+        }
+    except: return {}
+
+# 🔥 新增：FinMind PER 查詢函數
 def get_finmind_per(stock_id):
     try:
         end_date = datetime.date.today()
-        # 往前抓 7 天，確保有資料 (避開假日)
         start_date = end_date - datetime.timedelta(days=7)
         url = "https://api.finmindtrade.com/api/v4/data"
         token = "".join(FINMIND_TOKEN_GLOBAL.split())
-        
-        # Dataset: TaiwanStockPER (個股本益比)
         params = {
             "dataset": "TaiwanStockPER",
             "data_id": stock_id,
@@ -181,46 +197,14 @@ def get_finmind_per(stock_id):
         if r.status_code == 200 and "data" in r.json():
             data = r.json()["data"]
             if data:
-                # 取最新的一筆
-                latest = data[-1]
+                latest = data[-1] # 取最新一筆
                 return {
-                    "P/E": latest.get("PER", "N/A"),
-                    "Yield": latest.get("dividend_yield", "N/A"),
-                    "P/B": latest.get("PBR", "N/A")
+                    "P/E": latest.get("PER", 0),
+                    "Yield": latest.get("dividend_yield", 0),
+                    "P/B": latest.get("PBR", 0)
                 }
     except: pass
-    return None # 如果抓不到，回傳 None
-
-def get_fundamentals(stock_id):
-    # 1. 優先嘗試 FinMind (官方準確數據)
-    finmind_data = get_finmind_per(stock_id)
-    
-    try:
-        stock = yf.Ticker(f"{stock_id}.TW")
-        info = stock.info
-        
-        # 2. 如果有 FinMind 數據，優先使用
-        if finmind_data:
-            pe = finmind_data["P/E"]
-            yield_val = finmind_data["Yield"]
-            eps = "計算中..." # 稍後在主程式計算
-        else:
-            # 3. 備援：如果 FinMind 掛了，退回 Yahoo 數據
-            pe = round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A'
-            eps = round(info.get('trailingEps', 0), 2) if info.get('trailingEps') else 'N/A'
-            raw_yield = info.get('dividendYield', 0)
-            yield_val = round(raw_yield * 100, 2) if raw_yield and raw_yield < 1 else (round(raw_yield, 2) if raw_yield else 'N/A')
-
-        return {
-            "P/E": pe, 
-            "EPS": eps, # 這裡可能還是暫存值
-            "Yield": yield_val, 
-            "Cap": round(info.get('marketCap', 0)/100000000, 2) if info.get('marketCap') else 'N/A', 
-            "Name": info.get('longName', stock_id), 
-            "Sector": info.get('sector', 'N/A'), 
-            "Summary": info.get('longBusinessSummary', '暫無描述')
-        }
-    except: return {}
+    return None
 
 def get_revenue_data(stock_id):
     try:
@@ -275,18 +259,22 @@ if run_analysis:
     else:
         with st.spinner(f"📡 戰情室連線中... 調閱 {target_stock} 全維度數據..."):
             
+            # 1. 抓股價與籌碼
             df, _, df_probs = get_comprehensive_data(target_stock, analysis_days)
-            fundamentals = get_fundamentals(target_stock) # 這裡可能只有 P/E
             
-            # 🔥 二次修正 EPS：利用 FinMind 的 P/E 和最新股價反推
-            if df is not None and not df.empty:
+            # 2. 抓基本面 (先用 Yahoo)
+            fundamentals = get_fundamentals(target_stock)
+            
+            # 🔥 3. 抓 FinMind 官方 P/E 並更新 (這是在主程式執行，不會有參數錯誤)
+            finmind_per = get_finmind_per(target_stock)
+            if finmind_per and df is not None and not df.empty:
                 current_price = df.iloc[-1]['Close']
-                try:
-                    pe_val = float(fundamentals.get('P/E', 0))
-                    if pe_val > 0:
-                        # EPS = 股價 / 本益比
-                        fundamentals['EPS'] = round(current_price / pe_val, 2)
-                except: pass
+                # 用 FinMind 數據覆蓋 Yahoo
+                fundamentals['P/E'] = finmind_per['P/E']
+                fundamentals['Yield'] = finmind_per['Yield']
+                # 反推 EPS
+                if finmind_per['P/E'] > 0:
+                    fundamentals['EPS'] = round(current_price / finmind_per['P/E'], 2)
             
             news_list = get_google_news(target_stock)
             df_revenue = get_revenue_data(target_stock)
@@ -350,10 +338,6 @@ if run_analysis:
                     with info_tab3: st.dataframe(df_probs.style.format("{:.1f}%"), use_container_width=True)
 
                 with ai_col:
-                    # ==========================================
-                    # 🔥 v14.1 合作共生邏輯 (Grok 變戰友)
-                    # ==========================================
-                    
                     data_for_ai = df[['date', 'Close', 'MA60', '外資', '投信', 'K', 'D', 'MACD_Hist']].tail(12).to_string(index=False)
                     news_str = "\n".join([f"- {n['title']}" for n in news_list[:8]]) 
                     rev_str = df_revenue.head(6).to_string() if not df_revenue.empty else "無"
@@ -407,7 +391,6 @@ if run_analysis:
                                 status.update(label="✅ 藍軍報告完成", state="complete", expanded=False)
                                 time.sleep(1)
 
-                            # 🔥 v14.0 修正：如果選了 Grok 合作模式
                             if "Grok" in wargame_mode:
                                 red_class = "grok-synergy" # 紫色合作風格
                                 red_persona = "Grok (合作戰友)"
