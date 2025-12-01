@@ -413,4 +413,89 @@ if run_analysis:
                     * **指標訊號：** KD 與 MACD 是否出現背離或黃金/死亡交叉？
 
                     ### 3. 🎲 風險與情境 (Risk & Scenarios)
-                    * **主要風險：** * **情
+                    * **主要風險：** * **情境推演：** 若股價跌破關鍵支撐，下檔看哪裡？若突破壓力，目標看哪裡？
+
+                    ### 4. 🚀 戰略合成 (Strategy)
+                    * **操作建議：** 基於投資者輪廓，現在該做什麼？(買進/觀望/賣出)
+                    * **防守點位：** (必填) 給出明確的止損價位。
+                    """
+
+                    try:
+                        genai.configure(api_key=GEMINI_API_KEY_GLOBAL)
+                        model = genai.GenerativeModel('models/gemini-2.5-pro')
+                        
+                        if enable_wargame:
+                            with st.status("🔵 藍軍參謀：分析理想面...", expanded=True) as status:
+                                response_analyst = model.generate_content(prompt_blue).text
+                                st.markdown(f"<div class='role-box blue-team'>{response_analyst}</div>", unsafe_allow_html=True)
+                                status.update(label="✅ 藍軍報告完成", state="complete", expanded=False)
+                                time.sleep(1)
+
+                            # 🔥 v14.0 修正：如果選了 Grok 合作模式
+                            if "Grok" in wargame_mode:
+                                red_class = "grok-synergy" # 紫色合作風格
+                                red_persona = "Grok (合作戰友)"
+                                red_mission = """
+                                你是 xAI 的 Grok，但這次你是站在使用者這邊的「超級軍師」。
+                                你的風格：【機智、反骨、但極度實用】。
+                                你的任務：
+                                1. 承認藍軍的基本面分析有道理，但指出市場的「非理性風險」。
+                                2. 提出「三步安全獲利藍圖」：(1) 觀望與觸發條件 (2) 分批進場點 (3) 紀律出場點。
+                                3. 確保方案是「低風險、高勝率」的，目標年化報酬 10-15%。
+                                """
+                            else:
+                                red_class = "red-team"
+                                red_persona = "主力操盤手"
+                                red_mission = "無情批判藍軍盲點，提出如何製造假突破或假跌破來修理散戶的劇本。"
+
+                            with st.status(f"🟣 紅軍 ({red_persona})：擬定獲利藍圖...", expanded=True) as status:
+                                prompt_predator = f"""
+                                角色：{red_persona}。
+                                任務：{red_mission}
+                                藍軍觀點：{response_analyst}
+                                數據：\n{data_for_ai}
+                                """
+                                response_predator = model.generate_content(prompt_predator).text
+                                st.markdown(f"<div class='role-box {red_class}'>{response_predator}</div>", unsafe_allow_html=True)
+                                status.update(label="✅ 紅軍策略完成", state="complete", expanded=False)
+                                time.sleep(1)
+
+                            st.subheader("⚔️ 總司令決策")
+                            with st.spinner("🧠 綜合推演中..."):
+                                prompt_commander = f"""
+                                角色：Alpha Strategist 總司令。
+                                藍軍(理性)：{response_analyst}
+                                紅軍(實戰)：{response_predator}
+                                
+                                請整合兩者觀點，並參考 Grok 的實戰風格，給出最終的「傻瓜執行清單」。
+                                
+                                請嚴格依照以下格式輸出 (Markdown)：
+                                ### 1. 🛡️ 戰場動態 (Risk Level 0-10)
+                                * (一句話定調目前的風險程度)
+                                
+                                ### 2. 🦅 每日看盤 SOP (10秒檢查法)
+                                * **A. 價格訊號：** (例如：收盤是否站上 xxx 元？)
+                                * **B. 籌碼訊號：** (例如：投信賣超是否縮減至 xxx 張？)
+                                * **C. 量能訊號：** (例如：成交量是否大於 xxx 萬張？)
+                                * **行動：** 若滿足則...；若未滿足則...
+                                
+                                ### 3. 🎯 預掛單設定 (Set & Forget)
+                                * **第一批進場：** 價格 xxx，資金 %
+                                * **加碼條件：** 價格 xxx
+                                * **鐵律停損單：** 觸發價 xxx (市價出場)
+                                * **分批停利單：** 目標一 xxx，目標二 xxx
+                                """
+                                response_commander = model.generate_content(prompt_commander, stream=True)
+                                response_container = st.empty()
+                                full_response = ""
+                                for chunk in response_commander:
+                                    full_response += chunk.text
+                                    response_container.markdown(full_response)
+                        else:
+                            with st.status("🧠 深度分析中...", expanded=True):
+                                response = model.generate_content(prompt_blue)
+                                st.markdown(response.text)
+
+                    except Exception as e: st.error(f"AI Error: {e}")
+
+            else: st.error("⚠️ 查無數據")
