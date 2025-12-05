@@ -9,10 +9,9 @@ import feedparser
 import datetime
 import numpy as np
 import time
-import os
 
 # ==========================================
-# 🔑【金鑰設定區】
+# 🔑【金鑰設定區 - 混合安全版】
 try:
     GEMINI_API_KEY_GLOBAL = st.secrets["GEMINI_KEY"]
     FINMIND_TOKEN_GLOBAL = st.secrets["FINMIND_TOKEN"]
@@ -48,18 +47,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 Alpha Strategist AI")
-st.markdown("##### ⚡ Powered by Gemini 2.5 Pro | v17.0 雲端戰史館")
+st.markdown("##### ⚡ Powered by Gemini 2.5 Pro | v17.1 雲端下載版")
 
 # --- 側邊欄 ---
 with st.sidebar:
     st.header("⚙️ 戰術設定")
-    valid_gemini = "".join(GEMINI_API_KEY_GLOBAL.split())
-    valid_finmind = "".join(FINMIND_TOKEN_GLOBAL.split())
     
-    if valid_gemini: st.success("✅ Gemini 金鑰鎖定")
-    else: st.error("❌ 缺 Gemini Key")
-    if valid_finmind: st.success("✅ FinMind Token 鎖定")
-    else: st.warning("⚠️ 缺 FinMind Token")
+    if GEMINI_API_KEY_GLOBAL: st.success(f"✅ Gemini 金鑰已載入")
+    else: st.error("❌ 未偵測到 Gemini Key")
+        
+    if FINMIND_TOKEN_GLOBAL: st.success(f"✅ FinMind Token 已載入")
+    else: st.warning("⚠️ 未偵測到 FinMind Token")
 
     st.markdown("---")
     st.subheader("📋 自選監控")
@@ -76,12 +74,6 @@ with st.sidebar:
     
     st.markdown("---")
     strategy_profile = st.radio("投資輪廓", ["穩健價值型", "激進動能型"], index=0)
-
-    # 🔥 新增：存檔路徑設定
-    st.markdown("---")
-    st.subheader("💾 戰史館存檔")
-    # 這裡可以改成您 Google Drive 的路徑，例如 "G:/My Drive/Stock_Reports"
-    save_path = st.text_input("存檔資料夾", "Stock_Reports") 
 
 # --- 數據函數 ---
 def calculate_indicators(df):
@@ -113,7 +105,7 @@ def get_comprehensive_data(stock_id, days):
     df_chips = pd.DataFrame()
     try:
         url = "https://api.finmindtrade.com/api/v4/data"
-        params = {"dataset": "TaiwanStockInstitutionalInvestorsBuySell", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": valid_finmind}
+        params = {"dataset": "TaiwanStockInstitutionalInvestorsBuySell", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": FINMIND_TOKEN_GLOBAL}
         r = requests.get(url, params=params, timeout=10)
         if r.status_code == 200 and "data" in r.json():
             raw_inst = pd.DataFrame(r.json()["data"])
@@ -138,7 +130,7 @@ def get_finmind_per(stock_id):
     try:
         end_date = datetime.date.today(); start_date = end_date - datetime.timedelta(days=7)
         url = "https://api.finmindtrade.com/api/v4/data"
-        params = {"dataset": "TaiwanStockPER", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": valid_finmind}
+        params = {"dataset": "TaiwanStockPER", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": FINMIND_TOKEN_GLOBAL}
         r = requests.get(url, params=params, timeout=5)
         if r.status_code == 200 and "data" in r.json():
             data = r.json()["data"]
@@ -151,14 +143,14 @@ def get_fundamentals(stock_id):
         stock = yf.Ticker(f"{stock_id}.TW"); info = stock.info
         raw_yield = info.get('dividendYield', 0)
         fmt_yield = round(raw_yield * 100, 2) if raw_yield and raw_yield < 1 else (round(raw_yield, 2) if raw_yield else 'N/A')
-        return {"P/E": round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A', "EPS": round(info.get('trailingEps', 0), 2) if info.get('trailingEps') else 'N/A', "Yield": fmt_yield, "Cap": round(info.get('marketCap', 0)/100000000, 2) if info.get('marketCap') else 'N/A', "Name": info.get('longName', stock_id)}
+        return {"P/E": round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A', "EPS": round(info.get('trailingEps', 0), 2) if info.get('trailingEps') else 'N/A', "Yield": fmt_yield, "Cap": round(info.get('marketCap', 0)/100000000, 2) if info.get('marketCap') else 'N/A', "Name": info.get('longName', stock_id), "Sector": info.get('sector', 'N/A'), "Summary": info.get('longBusinessSummary', '暫無描述')}
     except: return {}
 
 def get_revenue_data(stock_id):
     try:
         end_date = datetime.date.today(); start_date = end_date - datetime.timedelta(days=730)
         url = "https://api.finmindtrade.com/api/v4/data"
-        params = {"dataset": "TaiwanStockMonthRevenue", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": valid_finmind}
+        params = {"dataset": "TaiwanStockMonthRevenue", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": FINMIND_TOKEN_GLOBAL}
         r = requests.get(url, params=params, timeout=10)
         if r.status_code == 200:
             data = r.json()
@@ -183,31 +175,6 @@ def get_google_news(stock_id):
         return [{"title": e.title, "url": e.link, "date": f"{e.published_parsed.tm_mon}/{e.published_parsed.tm_mday}"} for e in feed.entries[:6]]
     except: return []
 
-# 🔥 新增：存檔功能 (存成 Markdown)
-def save_report_to_md(stock_id, price, content):
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-    
-    date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-    filename = f"{save_path}/{stock_id}-策略研報-{date_str}.md"
-    
-    # 建立 Markdown 內容
-    md_content = f"""
-# {stock_id} 策略研報
-- **日期：** {date_str}
-- **收盤價：** {price}
-
----
-## AI 決策摘要
-{content}
-
----
-*Created by Alpha Strategist AI*
-"""
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(md_content)
-    return filename
-
 # --- 主介面 ---
 col1, col2, col3 = st.columns([1, 1, 2])
 with col1: 
@@ -217,7 +184,7 @@ with col2: analysis_days = st.slider("回溯天數", 30, 180, 90, label_visibili
 with col3: run_analysis = st.button("🔥 啟動兵棋推演", type="primary", use_container_width=True)
 
 if run_analysis:
-    if not valid_gemini: st.error("⛔ 請檢查 Gemini Key")
+    if not GEMINI_API_KEY_GLOBAL: st.error("⛔ 請檢查 Gemini Key")
     else:
         with st.spinner(f"📡 戰情室連線中... 調閱 {target_stock} 全維度數據..."):
             
@@ -232,7 +199,6 @@ if run_analysis:
             df_revenue = get_revenue_data(target_stock)
             
             if df is not None and not df.empty:
-                # 顯示數據與圖表 (保持 v15.2)
                 st.markdown("---")
                 m1, m2, m3, m4, m5 = st.columns(5)
                 m1.metric("名稱", fundamentals.get("Name", target_stock))
@@ -255,10 +221,10 @@ if run_analysis:
                         for i, row_prob in df_probs.iterrows():
                             level = row_prob['Level']; dist = last_close * (1.0 * level / 100); target_up = last_high + dist; prob_up = row_prob[prob_col_up]
                             fig.add_shape(type="line", x0=df['date'].iloc[-5], x1=df['date'].iloc[-1], y0=target_up, y1=target_up, line=dict(color='yellow', width=1, dash="dot"), row=1, col=1)
-                            fig.add_annotation(x=df['date'].iloc[-1], y=target_up, text=f"L{level}: {target_up:.1f} ({prob_up:.0f}%)", showarrow=False, xanchor="left", font=dict(color="yellow", size=10), row=1, col=1)
+                            fig.add_annotation(x=df['date'].iloc[-1], y=target_up, text=f"L{level} ({prob_up:.0f}%)", showarrow=False, xanchor="left", font=dict(color="yellow", size=10), row=1, col=1)
                             target_down = last_low - dist; prob_down = row_prob[prob_col_down]
                             fig.add_shape(type="line", x0=df['date'].iloc[-5], x1=df['date'].iloc[-1], y0=target_down, y1=target_down, line=dict(color='cyan', width=1, dash="dot"), row=1, col=1)
-                            fig.add_annotation(x=df['date'].iloc[-1], y=target_down, text=f"L{level}: {target_down:.1f} ({prob_down:.0f}%)", showarrow=False, xanchor="left", font=dict(color="cyan", size=10), row=1, col=1)
+                            fig.add_annotation(x=df['date'].iloc[-1], y=target_down, text=f"L{level} ({prob_down:.0f}%)", showarrow=False, xanchor="left", font=dict(color="cyan", size=10), row=1, col=1)
                     fig.add_trace(go.Bar(x=df['date'], y=df['外資'], name='外資', marker_color='cyan'), row=2, col=1)
                     fig.add_trace(go.Bar(x=df['date'], y=df['投信'], name='投信', marker_color='orange'), row=2, col=1)
                     fig.add_trace(go.Bar(x=df['date'], y=df['MACD_Hist'], name='MACD柱', marker_color=np.where(df['MACD_Hist']<0, 'green', 'red')), row=3, col=1)
@@ -288,7 +254,7 @@ if run_analysis:
                     prompt_blue = f"你現在是 Alpha Strategist AI (v6.4 深度復刻版)。任務：執行七大模組分析 {target_stock}。\n預載投資者輪廓：{investor_profile}\n【輸入情報】\n1. 技術籌碼：\n{data_for_ai}\n2. 基本面：{fundamentals}\n3. 營收：\n{rev_str}\n4. 宏觀：\n{news_str}\n請依照【基本面】、【技術籌碼】、【風險情境】、【戰略合成】章節撰寫。"
 
                     try:
-                        genai.configure(api_key=valid_gemini)
+                        genai.configure(api_key=GEMINI_API_KEY_GLOBAL)
                         model = genai.GenerativeModel('models/gemini-2.5-pro')
                         
                         if enable_wargame:
@@ -318,19 +284,45 @@ if run_analysis:
                                     full_response += chunk.text
                                     response_container.markdown(full_response)
                                 
-                                # 🔥 新增：存檔按鈕
+                                # 🔥 v17.1 新增：下載按鈕 (Download Button)
                                 st.markdown("---")
-                                if st.button("💾 存入戰史館 (Markdown)"):
-                                    # 組合所有內容
-                                    full_content = f"## 藍軍報告\n{response_analyst}\n\n## 紅軍報告\n{response_predator}\n\n## 總司令決策\n{full_response}"
-                                    filename = save_report_to_md(target_stock, df.iloc[-1]['Close'], full_content)
-                                    st.success(f"✅ 已存檔至：`{filename}`")
-                                    st.info("💡 請檢查您電腦上的資料夾，然後上傳到 NotebookLM！")
+                                # 準備 Markdown 內容
+                                full_report_md = f"""
+# Alpha Strategist 戰情報告 ({target_stock})
+**日期：** {datetime.datetime.now().strftime("%Y-%m-%d")}
+
+---
+## 🔵 藍軍分析 (Fundamental & Tech)
+{response_analyst}
+
+---
+## 🟣 紅軍策略 ({red_persona})
+{response_predator}
+
+---
+## ⚔️ 總司令決策 (Final Order)
+{full_response}
+"""
+                                # 下載按鈕元件
+                                st.download_button(
+                                    label="💾 下載戰報 (Markdown)",
+                                    data=full_report_md,
+                                    file_name=f"{target_stock}_strategy_report_{datetime.datetime.now().strftime('%Y%m%d')}.md",
+                                    mime="text/markdown"
+                                )
+                                st.info("💡 下載後，可直接上傳至 Google Drive 或餵給 NotebookLM 建立專屬知識庫。")
 
                         else:
                             with st.status("🧠 深度分析中...", expanded=True):
                                 response = model.generate_content(prompt_blue)
                                 st.markdown(response.text)
+                                # 單一模式的下載按鈕
+                                st.download_button(
+                                    label="💾 下載分析報告",
+                                    data=response.text,
+                                    file_name=f"{target_stock}_analysis_{datetime.datetime.now().strftime('%Y%m%d')}.md",
+                                    mime="text/markdown"
+                                )
 
                     except Exception as e: st.error(f"AI Error: {e}")
 
