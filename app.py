@@ -24,7 +24,7 @@ except:
 
 st.set_page_config(page_title="Alpha Strategist AI", layout="wide", page_icon="🚀")
 
-# CSS 優化
+# CSS 優化 (強制黑底)
 st.markdown("""
 <style>
     .stApp { background-color: #0f172a; color: #f8fafc; }
@@ -48,57 +48,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 Alpha Strategist AI")
-st.markdown("##### ⚡ Powered by Gemini Auto-Adapt | v19.2 模型自適應版")
+st.markdown("##### ⚡ Powered by Gemini 1.5 Flash | v22.0 視覺修復版")
 
-# 🔥 全域變數初始化
+# 🔥 1. 全域變數初始化 (防止 NameError)
 target_stock_sidebar = "2330"
-target_stock = "2330"
+target_stock = "2330" 
 enable_wargame = False
 wargame_mode = "單一模式"
 scanner_list = "2330 2317 2454 2603 2376 3231"
+strategy_profile = "穩健價值型"
 valid_gemini = "".join(GEMINI_API_KEY_GLOBAL.split())
 valid_finmind = "".join(FINMIND_TOKEN_GLOBAL.split())
-
-# 🔥 新增：自動尋找最佳模型
-@st.cache_resource
-def get_best_model_name(api_key):
-    try:
-        genai.configure(api_key=api_key)
-        # 列出所有可用模型
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        # 1. 優先找 2.5 或 2.0 Flash (速度快、省額度)
-        for m in models:
-            if 'flash' in m.lower() and 'legacy' not in m.lower() and ('2.5' in m or '2.0' in m):
-                return m
-        
-        # 2. 其次找任何 Flash
-        for m in models:
-            if 'flash' in m.lower() and 'legacy' not in m.lower():
-                return m
-        
-        # 3. 找 Pro
-        for m in models:
-            if 'pro' in m.lower() and 'legacy' not in m.lower():
-                return m
-        
-        # 4. 如果都找不到，回傳第一個可用的
-        if models: return models[0]
-    except:
-        pass
-    return "gemini-1.5-flash" # 最終保底 (如果 API 連線失敗)
 
 # --- 側邊欄 ---
 with st.sidebar:
     st.header("⚙️ 戰術設定")
-    
-    if valid_gemini: 
-        st.success("✅ Gemini 金鑰鎖定")
-        # 自動偵測模型並顯示
-        best_model = get_best_model_name(valid_gemini)
-        st.caption(f"🤖 目前使用模型：`{best_model}`")
+    if valid_gemini: st.success("✅ Gemini 金鑰鎖定 (Free Tier)")
     else: st.error("❌ 缺 Gemini Key")
-    
     if valid_finmind: st.success("✅ FinMind Token 鎖定")
     else: st.warning("⚠️ 缺 FinMind Token")
 
@@ -119,19 +85,19 @@ with st.sidebar:
     else:
         st.subheader("📡 掃描清單")
         scanner_list = st.text_area("輸入代號 (空白隔開)", scanner_list)
-        st.caption("AI 將會批次掃描並評比這些股票。")
+        st.caption("⚠️ 為配合 Free Tier 限制，每檔股票掃描將間隔 3 秒。")
 
     st.markdown("---")
     strategy_profile = st.radio("投資輪廓", ["穩健價值型", "激進動能型"], index=0)
 
-# --- 工具函數 (保留 v19.1 的優化) ---
+# --- 核心數據函數 (含防呆機制) ---
 
 def safe_api_call(url, params, max_retries=2):
     for attempt in range(max_retries):
         try:
             r = requests.get(url, params=params, timeout=5)
             if r.status_code == 200: return r.json()
-            elif r.status_code == 429: time.sleep(1); continue
+            elif r.status_code == 429: time.sleep(2); continue 
         except: time.sleep(1)
     return None
 
@@ -152,21 +118,27 @@ def calculate_breakout_probs(df, step_percent=1.0):
     df = df.copy()
     df['Prev_Close'] = df['Close'].shift(1); df['Prev_Open'] = df['Open'].shift(1); df['Prev_High'] = df['High'].shift(1); df['Prev_Low'] = df['Low'].shift(1)
     df['Is_Up'] = df['Prev_Close'] > df['Prev_Open']; df['Is_Down'] = df['Prev_Close'] <= df['Prev_Open']
-    n = len(df); df['Weight'] = np.exp(np.linspace(-2, 0, n))
+    n = len(df); df['Weight'] = np.linspace(0.1, 1.0, n)
     stats = []
     for i in range(1, 4):
         dist = df['Prev_Close'] * (step_percent * i / 100)
-        hit_high = (df['High'] >= df['Prev_High'] + dist).astype(int); hit_low = (df['Low'] <= df['Prev_Low'] - dist).astype(int)
+        target_high = df['Prev_High'] + dist
+        target_low = df['Prev_Low'] - dist
+        hit_high = (df['High'] >= target_high).astype(int)
+        hit_low = (df['Low'] <= target_low).astype(int)
         def get_prob(mask_col, hit_series):
             mask = df[mask_col]; valid_hits = hit_series[mask]; valid_weights = df.loc[mask, 'Weight']
             return np.average(valid_hits, weights=valid_weights) * 100 if len(valid_hits) > 0 else 0.0
         stats.append({'Level': i, 'Up_Bull': get_prob('Is_Up', hit_high), 'Down_Bull': get_prob('Is_Up', hit_low), 'Up_Bear': get_prob('Is_Down', hit_high), 'Down_Bear': get_prob('Is_Down', hit_low)})
     return pd.DataFrame(stats)
 
+# 🔥 統一數據抓取函數 (防止 KeyError)
 @st.cache_data(ttl=300) 
-def get_technical_chips(stock_id, days):
+def get_stock_data_robust(stock_id, days):
     end_date = datetime.date.today(); start_date = end_date - datetime.timedelta(days=days + 150)
     df_chips = pd.DataFrame()
+    
+    # 1. 抓籌碼
     try:
         url = "https://api.finmindtrade.com/api/v4/data"
         params = {"dataset": "TaiwanStockInstitutionalInvestorsBuySell", "data_id": stock_id, "start_date": start_date.strftime('%Y-%m-%d'), "end_date": end_date.strftime('%Y-%m-%d'), "token": valid_finmind}
@@ -179,6 +151,7 @@ def get_technical_chips(stock_id, days):
                 df_chips = pd.merge(foreign[['date', '外資']], trust[['date', '投信']], on='date', how='outer').fillna(0)
     except: pass
 
+    # 2. 抓股價
     try:
         df_price = yf.download(f"{stock_id}.TW", start=start_date.strftime('%Y-%m-%d'), progress=False, auto_adjust=True)
         if df_price.empty: return None, None, None
@@ -190,9 +163,18 @@ def get_technical_chips(stock_id, days):
     except: return None, None, None
 
     df_probs = calculate_breakout_probs(df_price.copy(), 1.0)
-    if not df_chips.empty: merged = pd.merge(df_price, df_chips, on='date', how='left').fillna(0)
-    else: merged = df_price; merged['外資'] = 0; merged['投信'] = 0
-    return merged.tail(days), df_chips, df_probs
+    
+    # 🔥 3. 合併與補零 (KeyError 剋星)
+    if not df_chips.empty: 
+        merged = pd.merge(df_price, df_chips, on='date', how='left').fillna(0)
+    else: 
+        merged = df_price.copy()
+        
+    # 確保欄位一定存在，若不存在就填 0
+    if '外資' not in merged.columns: merged['外資'] = 0
+    if '投信' not in merged.columns: merged['投信'] = 0
+        
+    return merged.tail(days), None, df_probs
 
 @st.cache_data(ttl=3600)
 def get_finmind_per(stock_id):
@@ -236,7 +218,7 @@ def save_report_to_md(stock_id, price, content):
     return f"# {stock_id} 策略研報\n- **日期：** {date_str}\n- **收盤價：** {price}\n\n---\n## AI 決策摘要\n{content}\n\n---\n*Created by Alpha Strategist AI*"
 
 # --- 批次掃描 ---
-def run_batch_scan(ticker_list, model_name):
+def run_batch_scan(ticker_list):
     summary_data = []
     progress_bar = st.progress(0); status_text = st.empty()
     tickers = [t.strip() for t in ticker_list.replace(',', ' ').split(' ') if t.strip()]
@@ -245,19 +227,22 @@ def run_batch_scan(ticker_list, model_name):
     for i, stock_id in enumerate(tickers):
         status_text.text(f"📡 正在掃描 {stock_id} ... ({i+1}/{total})")
         try:
-            df, _, _ = get_technical_chips(stock_id, 60)
+            df, _, _ = get_stock_data_robust(stock_id, 60)
             finmind_per = get_finmind_per(stock_id)
             if df is not None and not df.empty:
                 last = df.iloc[-1]
                 trend = "🟢 多頭" if last['Close'] > last['MA60'] else "🔴 空頭"
                 if last['Close'] < last['MA20']: trend = "⚪ 整理"
-                chips_sum = df['外資'].tail(5).sum() if '外資' in df.columns else 0
+                
+                # 因為有補零機制，這裡可以直接取值，不怕 KeyError
+                chips_sum = df['外資'].tail(5).sum()
                 chips_status = "🔥 外資買" if chips_sum > 2000 else ("🧊 外資賣" if chips_sum < -2000 else "➖ 觀望")
                 pe = finmind_per['P/E'] if finmind_per else "N/A"
                 summary_data.append({"代號": stock_id, "收盤": last['Close'], "趨勢": trend, "籌碼": chips_status, "P/E": pe})
         except: pass
         progress_bar.progress((i + 1) / total)
-        time.sleep(0.5) 
+        time.sleep(3) # 配合 Free Tier 限制
+        
     status_text.empty(); progress_bar.empty()
     return pd.DataFrame(summary_data)
 
@@ -274,10 +259,11 @@ if app_mode == "🎯 單兵作戰 (深度分析)":
         if not valid_gemini: st.error("⛔ 請檢查 Gemini Key")
         else:
             with st.spinner(f"📡 戰情室連線中..."):
-                df, _, df_probs = get_technical_chips(target_stock, analysis_days)
+                # 使用防呆版的數據函數
+                df, _, df_probs = get_stock_data_robust(target_stock, analysis_days)
+                
                 fundamentals = get_fundamentals(target_stock)
                 finmind_per = get_finmind_per(target_stock)
-                
                 if finmind_per and df is not None:
                     current_price = df.iloc[-1]['Close']
                     fundamentals['P/E'] = finmind_per['P/E']; fundamentals['Yield'] = finmind_per['Yield']
@@ -298,6 +284,7 @@ if app_mode == "🎯 單兵作戰 (深度分析)":
 
                     chart_col, ai_col = st.columns([2, 1])
                     with chart_col:
+                        # 繪圖：強制設定黑底白字，找回 L1/L2 標籤
                         fig = make_subplots(rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.5, 0.15, 0.15, 0.2])
                         fig.add_trace(go.Candlestick(x=df['date'], open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='股價'), row=1, col=1)
                         fig.add_trace(go.Scatter(x=df['date'], y=df['MA60'], name='MA60', line=dict(color='blue')), row=1, col=1)
@@ -307,14 +294,30 @@ if app_mode == "🎯 單兵作戰 (深度分析)":
                             for i, row in df_probs.iterrows():
                                 target = last_c * (1 + row['Level']/100)
                                 fig.add_hline(y=target, line_dash="dot", line_color="yellow", row=1, col=1)
+                                # 🔥 標籤加回來了
+                                fig.add_annotation(x=df['date'].iloc[-1], y=target, text=f"L{row['Level']}", font=dict(color="yellow"))
 
-                        if '外資' in df.columns: fig.add_trace(go.Bar(x=df['date'], y=df['外資'], name='外資', marker_color='cyan'), row=2, col=1)
-                        if '投信' in df.columns: fig.add_trace(go.Bar(x=df['date'], y=df['投信'], name='投信', marker_color='orange'), row=2, col=1)
+                        fig.add_trace(go.Bar(x=df['date'], y=df['外資'], name='外資', marker_color='cyan'), row=2, col=1)
+                        fig.add_trace(go.Bar(x=df['date'], y=df['投信'], name='投信', marker_color='orange'), row=2, col=1)
+                        
                         fig.add_trace(go.Bar(x=df['date'], y=df['MACD_Hist'], name='MACD', marker_color='red'), row=3, col=1)
                         fig.add_trace(go.Scatter(x=df['date'], y=df['K'], name='K', line=dict(color='orange')), row=4, col=1)
                         fig.add_trace(go.Scatter(x=df['date'], y=df['D'], name='D', line=dict(color='purple')), row=4, col=1)
-                        fig.update_layout(template='plotly_dark', height=800, showlegend=False, margin=dict(t=10, b=10, l=10, r=10))
+                        
+                        # 🔥 強制設定黑底背景
+                        fig.update_layout(template='plotly_dark', height=800, showlegend=False, paper_bgcolor='#0f172a', plot_bgcolor='#0f172a', font=dict(color='#f8fafc'))
                         st.plotly_chart(fig, use_container_width=True)
+                        
+                        # 🔥 資訊分頁加回來
+                        st.write("")
+                        info_tab1, info_tab2 = st.tabs(["📰 新聞", "💰 營收"])
+                        with info_tab1:
+                            if news_list:
+                                for n in news_list: st.markdown(f"**[{n['title']}]({n.get('url', '#')})**")
+                            else: st.info("查無新聞")
+                        with info_tab2:
+                            if not df_revenue.empty: st.dataframe(df_revenue, use_container_width=True)
+                            else: st.info("查無營收")
 
                     with ai_col:
                         data_for_ai = compress_data_for_ai(df)
@@ -323,10 +326,9 @@ if app_mode == "🎯 單兵作戰 (深度分析)":
                         prompt = f"分析 {target_stock}。\n數據：{data_for_ai}\n新聞：{news_str}\n請給出操作建議。"
                         try:
                             genai.configure(api_key=valid_gemini)
-                            # 🔥 使用自動偵測到的最佳模型
-                            model = genai.GenerativeModel(best_model)
+                            model = genai.GenerativeModel('models/gemini-1.5-flash')
                             
-                            with st.status(f"🧠 AI 思考中 ({best_model})..."):
+                            with st.status("🧠 AI 思考中 (使用 Flash 模型)..."):
                                 response = model.generate_content(prompt)
                                 st.markdown(response.text)
                                 st.download_button("💾 下載報告", response.text, file_name="report.md")
@@ -341,12 +343,12 @@ else:
     with col1: run_scan = st.button("🚀 啟動全域掃描", type="primary", use_container_width=True)
     if run_scan:
         with st.spinner("📡 掃描中..."):
-            res = run_batch_scan(scanner_list, best_model) # 傳入模型名稱
+            res = run_batch_scan(scanner_list)
             if not res.empty:
                 st.dataframe(res, use_container_width=True)
                 try:
                     genai.configure(api_key=valid_gemini)
-                    model = genai.GenerativeModel(best_model)
+                    model = genai.GenerativeModel('models/gemini-1.5-flash')
                     prompt = f"評比這些股票：\n{res.to_string()}\n選出 MVP 和 危險名單。"
                     resp = model.generate_content(prompt)
                     st.markdown(f"<div class='role-box commander'>{resp.text}</div>", unsafe_allow_html=True)
