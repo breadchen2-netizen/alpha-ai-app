@@ -1,29 +1,57 @@
 import streamlit as st
+import os
+import subprocess
+import sys
+import time
+
+# ==========================================
+# 🔥【暴力修復模組】強制檢查並安裝新版 SDK
+# 這是為了確保 Streamlit Cloud 絕對不會用舊版驅動程式
+# ==========================================
+try:
+    import google.generativeai as genai
+    from packaging import version
+    # 檢查版本是否過舊 (低於 0.5.2 就無法使用 Flash 模型)
+    current_ver = getattr(genai, "__version__", "0.0.0")
+    if version.parse(current_ver) < version.parse("0.5.2"):
+        print(f"⚠️ 偵測到舊版 SDK ({current_ver})，正在強制升級...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "google-generativeai>=0.5.2"])
+        import google.generativeai as genai # 重新載入
+        print("✅ SDK 更新完成！")
+except Exception as e:
+    # 如果根本沒安裝或 import 失敗，直接暴力安裝
+    print("⚠️ 環境初始化中，正在安裝 AI 驅動程式...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "google-generativeai>=0.5.2"])
+    import google.generativeai as genai
+
+# ==========================================
+# 📦 標準套件載入
+# ==========================================
 import pandas as pd
 import yfinance as yf
-import google.generativeai as genai
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
 import feedparser
 import datetime
 import numpy as np
-import time
 
 # ==========================================
-# 🔑【金鑰設定區 - 混合安全版】
+# 🔑【金鑰設定區】
+# ==========================================
 try:
     GEMINI_API_KEY_GLOBAL = st.secrets["GEMINI_KEY"]
     FINMIND_TOKEN_GLOBAL = st.secrets["FINMIND_TOKEN"]
 except:
-    # 如果找不到保險箱(例如第一次在本地跑)，先給空值避免報錯
     GEMINI_API_KEY_GLOBAL = ""
     FINMIND_TOKEN_GLOBAL = ""
-# ==========================================
 
+# ==========================================
+# ⚙️ 頁面設定
+# ==========================================
 st.set_page_config(page_title="Alpha Strategist AI", layout="wide", page_icon="🚀")
 
-# CSS 優化
+# CSS 優化 (黑底風格)
 st.markdown("""
 <style>
     .stApp { background-color: #0f172a; color: #f8fafc; }
@@ -36,70 +64,31 @@ st.markdown("""
     button[data-baseweb="tab"] { background-color: transparent !important; color: #94a3b8 !important; }
     button[data-baseweb="tab"][aria-selected="true"] { background-color: #334155 !important; color: #ffffff !important; }
     div[data-testid="stTable"] { color: white !important; }
-    thead tr th { background-color: #1e293b !important; color: #38bdf8 !important; }
     
+    /* 角色對話框樣式 */
     .role-box { padding: 15px; border-radius: 8px; margin-bottom: 12px; border-left: 5px solid; font-size: 0.95rem; line-height: 1.6; }
-    .blue-team { background-color: #1e293b; border-color: #3b82f6; color: #e2e8f0; }
-    .grok-synergy { background-color: #2e1065; border-color: #a855f7; color: #e9d5ff; font-family: 'Segoe UI', sans-serif; }
-    .red-team { background-color: #3f1818; border-color: #ef4444; color: #fecaca; }
-    .commander { background-color: #143328; border-color: #10b981; color: #d1fae5; }
+    .report-content { background-color: #1e293b; border-color: #3b82f6; color: #e2e8f0; padding: 20px; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🚀 Alpha Strategist AI")
 
-# --- 診斷區塊 (已修正變數名稱錯誤) ---
-with st.expander("🔍 工程師診斷模式：查看可用模型"):
-    st.write(f"當前 SDK 版本: {genai.__version__}") # 檢查版本
-    
-    try:
-        # 🔥 修正點：原本這裡是 valid_gemini (未定義)，已改為正確的 GEMINI_API_KEY_GLOBAL
-        if GEMINI_API_KEY_GLOBAL:
-            genai.configure(api_key=GEMINI_API_KEY_GLOBAL) 
-            available_models = []
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods:
-                    available_models.append(m.name)
-            st.write("✅ 你的 API Key 可以存取以下模型：")
-            st.code(available_models)
-        else:
-            st.warning("⚠️ 未偵測到 API Key，無法列出模型")
-    except Exception as e:
-        st.error(f"❌ 無法列出模型：{e}")
+# --- 診斷區塊 (可選) ---
+with st.expander("🔍 工程師診斷模式：查看 SDK 版本"):
+    st.write(f"當前 SDK 版本: {genai.__version__}")
+    if GEMINI_API_KEY_GLOBAL:
+        st.success("API Key 已載入")
+    else:
+        st.error("API Key 未載入")
 
-st.markdown("##### ⚡ Powered by Gemini 1.5 Flash | v17.2 Debug版")
+st.markdown("##### ⚡ Powered by Gemini 1.5 Flash | v25.0 戰術合成版")
 
-# --- 側邊欄 ---
-with st.sidebar:
-    st.header("⚙️ 戰術設定")
-    
-    if GEMINI_API_KEY_GLOBAL: st.success(f"✅ Gemini 金鑰已載入")
-    else: st.error("❌ 未偵測到 Gemini Key")
-        
-    if FINMIND_TOKEN_GLOBAL: st.success(f"✅ FinMind Token 已載入")
-    else: st.warning("⚠️ 未偵測到 FinMind Token")
-
-    st.markdown("---")
-    st.subheader("📋 自選監控")
-    default_list = ["2330 台積電", "2317 鴻海", "2603 長榮", "2376 技嘉", "3231 緯創", "2454 聯發科"]
-    selected_ticker_raw = st.radio("快速切換", default_list)
-    target_stock_sidebar = selected_ticker_raw.split(" ")[0]
-
-    st.markdown("---")
-    st.subheader("🎯 兵棋推演")
-    enable_wargame = st.toggle("啟動「紅藍軍對抗」", value=True)
-    if enable_wargame:
-        wargame_mode = st.radio("紅軍風格", ["🔴 傳統主力 (理性)", "🟣 Grok 合作 (安全)"], index=1)
-    else: wargame_mode = "單一模式"
-    
-    st.markdown("---")
-    strategy_profile = st.radio("投資輪廓", ["穩健價值型", "激進動能型"], index=0)
-
-# --- 數據函數 ---
+# ==========================================
+# 📊 數據處理函數
+# ==========================================
 def calculate_indicators(df):
     df['9_High'] = df['High'].rolling(9).max(); df['9_Low'] = df['Low'].rolling(9).min()
     denominator = df['9_High'] - df['9_Low']
-    # 防呆：避免分母為 0
     df['RSV'] = np.where(denominator != 0, (df['Close'] - df['9_Low']) / denominator * 100, 50)
     df['K'] = df['RSV'].ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean()
     df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean(); df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
@@ -108,7 +97,7 @@ def calculate_indicators(df):
     return df
 
 def calculate_breakout_probs(df, step_percent=1.0):
-    df = df.copy() # 避免 SettingWithCopyWarning
+    df = df.copy()
     df['Prev_Close'] = df['Close'].shift(1); df['Prev_Open'] = df['Open'].shift(1); df['Prev_High'] = df['High'].shift(1); df['Prev_Low'] = df['Low'].shift(1)
     df['Is_Up'] = df['Prev_Close'] > df['Prev_Open']; df['Is_Down'] = df['Prev_Close'] <= df['Prev_Open']
     n = len(df); df['Weight'] = np.linspace(0.1, 1.0, n)
@@ -147,10 +136,9 @@ def get_comprehensive_data(stock_id, days):
         if isinstance(df_price.columns, pd.MultiIndex): df_price.columns = df_price.columns.get_level_values(0)
         df_price = df_price.reset_index()
         
-        # 修正 yfinance date 欄位名稱可能不一致的問題
         if 'Date' in df_price.columns: df_price['date'] = df_price['Date'].dt.strftime('%Y-%m-%d')
         elif 'date' in df_price.columns: df_price['date'] = pd.to_datetime(df_price['date']).dt.strftime('%Y-%m-%d')
-        else: return None, None, None # 沒有日期欄位
+        else: return None, None, None
 
         df_price['MA5'] = df_price['Close'].rolling(window=5).mean(); df_price['MA20'] = df_price['Close'].rolling(window=20).mean(); df_price['MA60'] = df_price['Close'].rolling(window=60).mean()
         df_price = calculate_indicators(df_price)
@@ -178,16 +166,14 @@ def get_finmind_per(stock_id):
 def get_fundamentals(stock_id):
     try:
         stock = yf.Ticker(f"{stock_id}.TW")
-        info = stock.fast_info # 改用 fast_info 避免卡死
-        # 注意：fast_info 欄位與 info 不同
+        info = stock.fast_info
         return {
-            "P/E": "N/A", # fast_info 無 PE
+            "P/E": "N/A", 
             "EPS": "N/A", 
             "Yield": "N/A", 
             "Cap": round(info.market_cap/100000000, 2) if info.market_cap else 'N/A', 
             "Name": stock_id, 
-            "Sector": "TW Stock", 
-            "Summary": "No Data"
+            "Sector": "TW Stock"
         }
     except: return {}
 
@@ -204,7 +190,7 @@ def get_revenue_data(stock_id):
                 df = df.sort_values('date', ascending=True)
                 df['MoM'] = df['revenue'].pct_change() * 100; df['YoY'] = df['revenue'].pct_change(periods=12) * 100
                 df = df.sort_values('date', ascending=False).head(12)
-                return pd.DataFrame({'期間': df['date'].dt.strftime('%Y-%m'), '營收(億)': round(df['revenue']/100000000, 2), '月增%': df['MoM'].map('{:,.2f}'.format), '年增%': df['YoY'].map('{:,.2f}'.format), '來源': 'FinMind'})
+                return pd.DataFrame({'期間': df['date'].dt.strftime('%Y-%m'), '營收(億)': round(df['revenue']/100000000, 2), '月增%': df['MoM'].map('{:,.2f}'.format), '年增%': df['YoY'].map('{:,.2f}'.format)})
     except: pass
     return pd.DataFrame()
 
@@ -214,7 +200,96 @@ def get_google_news(stock_id):
         return [{"title": e.title, "url": e.link, "date": f"{e.published_parsed.tm_mon}/{e.published_parsed.tm_mday}"} for e in feed.entries[:6]]
     except: return []
 
-# --- 主介面 ---
+# ==========================================
+# 🧠 AI 核心函數 (含快取與合併 Prompt)
+# ==========================================
+@st.cache_data(ttl=3600) # 🔥 快取 1 小時，省 Quota！
+def ask_gemini_combined_strategy(ticker, profile, wargame_on, red_style, data_context):
+    """
+    將三方會談合併為一次請求，節省 API 呼叫次數。
+    """
+    if not GEMINI_API_KEY_GLOBAL:
+        return "⚠️ 請先設定 Gemini API Key"
+
+    # 定義紅軍角色
+    if "Grok" in red_style:
+        red_persona = "Grok (馬斯克的 AI)"
+        red_tone = "極度理性、科技視角、強調第一性原理，尋找被忽略的系統性風險。"
+    else:
+        red_persona = "華爾街空頭主力"
+        red_tone = "冷血、無情、專找泡沫與估值過高點，用最嚴苛的標準審視。"
+
+    # 合併 Prompt
+    prompt = f"""
+    你現在是 Alpha Strategist AI。請針對台股 {ticker} 進行一場深度的「兵棋推演」。
+    
+    【投資人輪廓】：{profile}
+    
+    【市場情報】：
+    {data_context}
+    
+    請依照以下結構，進行三方辯論與決策，並直接輸出為 Markdown 格式：
+
+    ---
+    ### 🔵 第一章：藍軍參謀報告 (基本面與多頭)
+    *角色：資深產業分析師，樂觀但有據。*
+    * **優勢分析**：從財報、技術面金叉、籌碼集中度分析。
+    * **機會點**：未來的催化劑 (Catalyst) 是什麼？
+    * **目標價位**：根據斐波那契或技術支撐給出預期。
+
+    ---
+    ### 🟣 第二章：紅軍 ({red_persona}) 批判
+    *角色：{red_tone}*
+    * **盲點戳破**：藍軍忽略了什麼致命風險？(例如：外資大賣、營收衰退、乖離過大)
+    * **下檔風險**：最壞情況會跌到哪裡？
+    * **靈魂拷問**：給投資人一個尖銳的問題。
+
+    ---
+    ### ⚔️ 第三章：總司令最終決策
+    *角色：冷靜的操盤手，整合上述觀點。*
+    * **戰場定調**：現在是進攻還是防守時刻？
+    * **SOP 操作指引**：
+        1.  **建倉策略**：(例如：分批 3-3-4，或等待回檔)
+        2.  **關鍵點位**：進場價、停損價、停利價。
+        3.  **每日任務**：明天開盤該盯什麼？
+    """
+
+    try:
+        genai.configure(api_key=GEMINI_API_KEY_GLOBAL)
+        # 🔥 使用最穩定的 1.5 Flash 模型
+        model = genai.GenerativeModel('models/gemini-1.5-flash')
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"AI 思考中斷：{str(e)}"
+
+# ==========================================
+# 🖥️ 主介面
+# ==========================================
+with st.sidebar:
+    st.header("⚙️ 戰術設定")
+    if GEMINI_API_KEY_GLOBAL: st.success(f"✅ Gemini 金鑰已載入")
+    else: st.error("❌ 未偵測到 Gemini Key")
+    if FINMIND_TOKEN_GLOBAL: st.success(f"✅ FinMind Token 已載入")
+    else: st.warning("⚠️ 未偵測到 FinMind Token")
+
+    st.markdown("---")
+    st.subheader("📋 自選監控")
+    default_list = ["2330 台積電", "2317 鴻海", "2603 長榮", "2376 技嘉", "3231 緯創", "2454 聯發科"]
+    selected_ticker_raw = st.radio("快速切換", default_list)
+    target_stock_sidebar = selected_ticker_raw.split(" ")[0]
+
+    st.markdown("---")
+    st.subheader("🎯 兵棋推演")
+    enable_wargame = st.toggle("啟動「紅藍軍對抗」", value=True)
+    if enable_wargame:
+        wargame_mode = st.radio("紅軍風格", ["🔴 傳統主力 (理性)", "🟣 Grok 合作 (安全)"], index=1)
+    else: wargame_mode = "單一模式"
+    
+    st.markdown("---")
+    strategy_profile = st.radio("投資輪廓", ["穩健價值型", "激進動能型"], index=0)
+
+# --- 主畫面 ---
 col1, col2, col3 = st.columns([1, 1, 2])
 with col1: 
     manual_input = st.text_input("股票代號", target_stock_sidebar, label_visibility="collapsed")
@@ -227,6 +302,7 @@ if run_analysis:
     else:
         with st.spinner(f"📡 戰情室連線中... 調閱 {target_stock} 全維度數據..."):
             
+            # 1. 抓取數據
             df, _, df_probs = get_comprehensive_data(target_stock, analysis_days)
             fundamentals = get_fundamentals(target_stock)
             finmind_per = get_finmind_per(target_stock)
@@ -239,6 +315,7 @@ if run_analysis:
             news_list = get_google_news(target_stock)
             df_revenue = get_revenue_data(target_stock)
             
+            # 2. 顯示數據儀表板
             if df is not None and not df.empty:
                 st.markdown("---")
                 m1, m2, m3, m4, m5 = st.columns(5)
@@ -257,15 +334,16 @@ if run_analysis:
                     fig.add_trace(go.Scatter(x=df['date'], y=df['MA5'], name='MA5', line=dict(color='#fbbf24', width=1)), row=1, col=1)
                     fig.add_trace(go.Scatter(x=df['date'], y=df['MA20'], name='MA20', line=dict(color='#a855f7', width=1.5)), row=1, col=1)
                     fig.add_trace(go.Scatter(x=df['date'], y=df['MA60'], name='MA60', line=dict(color='#3b82f6', width=2)), row=1, col=1)
-                    last_close = df.iloc[-1]['Close']; last_high = df.iloc[-1]['High']; last_low = df.iloc[-1]['Low']; is_last_up = last_close > df.iloc[-1]['Open']; prob_col_up = 'Up_Bull' if is_last_up else 'Up_Bear'; prob_col_down = 'Down_Bull' if is_last_up else 'Down_Bear'
+                    
+                    # 機率軌道
+                    last_close = df.iloc[-1]['Close']; last_high = df.iloc[-1]['High']; last_low = df.iloc[-1]['Low']
                     if df_probs is not None:
                         for i, row_prob in df_probs.iterrows():
-                            level = row_prob['Level']; dist = last_close * (1.0 * level / 100); target_up = last_high + dist; prob_up = row_prob[prob_col_up]
+                            level = row_prob['Level']; dist = last_close * (1.0 * level / 100); target_up = last_high + dist
                             fig.add_shape(type="line", x0=df['date'].iloc[-5], x1=df['date'].iloc[-1], y0=target_up, y1=target_up, line=dict(color='yellow', width=1, dash="dot"), row=1, col=1)
-                            fig.add_annotation(x=df['date'].iloc[-1], y=target_up, text=f"L{level} ({prob_up:.0f}%)", showarrow=False, xanchor="left", font=dict(color="yellow", size=10), row=1, col=1)
-                            target_down = last_low - dist; prob_down = row_prob[prob_col_down]
+                            target_down = last_low - dist
                             fig.add_shape(type="line", x0=df['date'].iloc[-5], x1=df['date'].iloc[-1], y0=target_down, y1=target_down, line=dict(color='cyan', width=1, dash="dot"), row=1, col=1)
-                            fig.add_annotation(x=df['date'].iloc[-1], y=target_down, text=f"L{level} ({prob_down:.0f}%)", showarrow=False, xanchor="left", font=dict(color="cyan", size=10), row=1, col=1)
+                    
                     fig.add_trace(go.Bar(x=df['date'], y=df['外資'], name='外資', marker_color='cyan'), row=2, col=1)
                     fig.add_trace(go.Bar(x=df['date'], y=df['投信'], name='投信', marker_color='orange'), row=2, col=1)
                     fig.add_trace(go.Bar(x=df['date'], y=df['MACD_Hist'], name='MACD柱', marker_color=np.where(df['MACD_Hist']<0, 'green', 'red')), row=3, col=1)
@@ -273,8 +351,7 @@ if run_analysis:
                     fig.add_trace(go.Scatter(x=df['date'], y=df['DEA'], name='DEA', line=dict(color='blue', width=1)), row=3, col=1)
                     fig.add_trace(go.Scatter(x=df['date'], y=df['K'], name='K值', line=dict(color='orange', width=1)), row=4, col=1)
                     fig.add_trace(go.Scatter(x=df['date'], y=df['D'], name='D值', line=dict(color='purple', width=1)), row=4, col=1)
-                    fig.add_hline(y=80, line_dash="dot", row=4, col=1, line_color="gray"); fig.add_hline(y=20, line_dash="dot", row=4, col=1, line_color="gray")
-                    fig.update_layout(template='plotly_dark', height=1000, xaxis_rangeslider_visible=False, showlegend=True, paper_bgcolor='#0f172a', plot_bgcolor='#0f172a', font=dict(color='#f8fafc', size=12), legend=dict(orientation="h", y=1.01, x=0, font=dict(color="#f8fafc"), bgcolor="rgba(0,0,0,0.5)"), margin=dict(t=30, b=30, l=60, r=40))
+                    fig.update_layout(template='plotly_dark', height=1000, xaxis_rangeslider_visible=False, showlegend=True, paper_bgcolor='#0f172a', plot_bgcolor='#0f172a', font=dict(color='#f8fafc'), margin=dict(t=30, b=30, l=60, r=40))
                     st.plotly_chart(fig, use_container_width=True)
 
                     st.write("")
@@ -284,84 +361,35 @@ if run_analysis:
                     with info_tab2: st.dataframe(df_revenue, use_container_width=True, hide_index=True)
                     with info_tab3: st.dataframe(df_probs.style.format("{:.1f}%"), use_container_width=True)
 
+                # 3. AI 分析模組
                 with ai_col:
+                    # 準備數據 Context
                     data_for_ai = df[['date', 'Close', 'MA60', '外資', '投信', 'K', 'D', 'MACD_Hist']].tail(12).to_string(index=False)
-                    news_str = "\n".join([f"- {n['title']}" for n in news_list[:8]]) 
+                    news_str = "\n".join([f"- {n['title']}" for n in news_list[:5]]) 
                     rev_str = df_revenue.head(6).to_string() if not df_revenue.empty else "無"
                     
-                    if "穩健" in strategy_profile: investor_profile = "基本面驅動的戰術型投資人。策略：左側低接，重視估值與安全邊際。"
-                    else: investor_profile = "動能驅動的交易型投資人。策略：右側追價，重視量能與趨勢。"
+                    full_context = f"""
+                    【技術指標】：\n{data_for_ai}
+                    【基本面】：P/E {fundamentals.get('P/E')}, 殖利率 {fundamentals.get('Yield')}%
+                    【近期營收】：\n{rev_str}
+                    【新聞焦點】：\n{news_str}
+                    """
 
-                    prompt_blue = f"你現在是 Alpha Strategist AI (v6.4 深度復刻版)。任務：執行七大模組分析 {target_stock}。\n預載投資者輪廓：{investor_profile}\n【輸入情報】\n1. 技術籌碼：\n{data_for_ai}\n2. 基本面：{fundamentals}\n3. 營收：\n{rev_str}\n4. 宏觀：\n{news_str}\n請依照【基本面】、【技術籌碼】、【風險情境】、【戰略合成】章節撰寫。"
-
-                    try:
-                        genai.configure(api_key=GEMINI_API_KEY_GLOBAL)
-                        # 🔥 確認這裡是用 1.5-flash
-                        model = genai.GenerativeModel('models/gemini-1.5-flash')
+                    st.subheader("⚔️ 戰情推演報告")
+                    
+                    # 呼叫 AI (這裡會用到快取，第二次點擊不扣額度)
+                    with st.status("🧠 戰情室運算中 (整合分析)...", expanded=True):
+                        ai_report = ask_gemini_combined_strategy(target_stock, strategy_profile, enable_wargame, wargame_mode, full_context)
                         
-                        if enable_wargame:
-                            with st.status("🔵 藍軍參謀：分析中...", expanded=True) as status:
-                                response_analyst = model.generate_content(prompt_blue).text
-                                st.markdown(f"<div class='role-box blue-team'>{response_analyst}</div>", unsafe_allow_html=True)
-                                status.update(label="✅ 藍軍完成", state="complete", expanded=False)
+                        # 顯示結果
+                        st.markdown(f"<div class='report-content'>{ai_report}</div>", unsafe_allow_html=True)
+                        
+                        # 下載按鈕
+                        st.download_button(
+                            label="💾 下載完整戰報 (Markdown)",
+                            data=f"# {target_stock} 深度戰報\n{datetime.date.today()}\n\n{ai_report}",
+                            file_name=f"{target_stock}_report.md",
+                            mime="text/markdown"
+                        )
 
-                            if "Grok" in wargame_mode:
-                                red_class = "grok-synergy"; red_persona = "Grok (合作戰友)"; red_mission = "提出三步安全獲利藍圖。"
-                            else:
-                                red_class = "red-team"; red_persona = "主力操盤手"; red_mission = "無情批判藍軍盲點。"
-
-                            with st.status(f"🟣 紅軍 ({red_persona})：擬定策略...", expanded=True) as status:
-                                prompt_predator = f"角色：{red_persona}。任務：{red_mission}。藍軍觀點：{response_analyst}。數據：{data_for_ai}"
-                                response_predator = model.generate_content(prompt_predator).text
-                                st.markdown(f"<div class='role-box {red_class}'>{response_predator}</div>", unsafe_allow_html=True)
-                                status.update(label="✅ 紅軍完成", state="complete", expanded=False)
-
-                            st.subheader("⚔️ 總司令決策")
-                            with st.spinner("🧠 綜合推演中..."):
-                                prompt_commander = f"角色：總司令。藍軍：{response_analyst}\n紅軍：{response_predator}\n請整合觀點，給出最終 SOP 指令 (含風險動態、每日SOP、預掛單)。"
-                                response_commander = model.generate_content(prompt_commander, stream=True)
-                                response_container = st.empty()
-                                full_response = ""
-                                for chunk in response_commander:
-                                    full_response += chunk.text
-                                    response_container.markdown(full_response)
-                                
-                                st.markdown("---")
-                                full_report_md = f"""
-# Alpha Strategist 戰情報告 ({target_stock})
-**日期：** {datetime.datetime.now().strftime("%Y-%m-%d")}
-
----
-## 🔵 藍軍分析 (Fundamental & Tech)
-{response_analyst}
-
----
-## 🟣 紅軍策略 ({red_persona})
-{response_predator}
-
----
-## ⚔️ 總司令決策 (Final Order)
-{full_response}
-"""
-                                st.download_button(
-                                    label="💾 下載戰報 (Markdown)",
-                                    data=full_report_md,
-                                    file_name=f"{target_stock}_strategy_report_{datetime.datetime.now().strftime('%Y%m%d')}.md",
-                                    mime="text/markdown"
-                                )
-                                st.info("💡 下載後，可直接上傳至 Google Drive 或餵給 NotebookLM 建立專屬知識庫。")
-
-                        else:
-                            with st.status("🧠 深度分析中...", expanded=True):
-                                response = model.generate_content(prompt_blue)
-                                st.markdown(response.text)
-                                st.download_button(
-                                    label="💾 下載分析報告",
-                                    data=response.text,
-                                    file_name=f"{target_stock}_analysis_{datetime.datetime.now().strftime('%Y%m%d')}.md",
-                                    mime="text/markdown"
-                                )
-
-                    except Exception as e: st.error(f"AI Error: {e}")
-
-            else: st.error("⚠️ 查無數據")
+            else: st.error("⚠️ 查無數據，請確認股票代號是否正確。")
