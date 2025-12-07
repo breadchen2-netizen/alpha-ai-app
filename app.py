@@ -4,7 +4,7 @@ import yfinance as yf
 import google.generativeai as genai
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import requests 
+import requests
 import feedparser
 import datetime
 import numpy as np
@@ -47,20 +47,27 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 Alpha Strategist AI")
+
+# --- 診斷區塊 (已修正變數名稱錯誤) ---
 with st.expander("🔍 工程師診斷模式：查看可用模型"):
-    st.write(f"當前 SDK 版本: {genai.__version__}") # 檢查版本，如果低於 0.5.0 就一定會失敗
+    st.write(f"當前 SDK 版本: {genai.__version__}") # 檢查版本
     
     try:
-        genai.configure(api_key=valid_gemini) # 確保 key 有設定進去
-        available_models = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
-        st.write("✅ 你的 API Key 可以存取以下模型：")
-        st.code(available_models)
+        # 🔥 修正點：原本這裡是 valid_gemini (未定義)，已改為正確的 GEMINI_API_KEY_GLOBAL
+        if GEMINI_API_KEY_GLOBAL:
+            genai.configure(api_key=GEMINI_API_KEY_GLOBAL) 
+            available_models = []
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods:
+                    available_models.append(m.name)
+            st.write("✅ 你的 API Key 可以存取以下模型：")
+            st.code(available_models)
+        else:
+            st.warning("⚠️ 未偵測到 API Key，無法列出模型")
     except Exception as e:
         st.error(f"❌ 無法列出模型：{e}")
-st.markdown("##### ⚡ Powered by Gemini 2.5 Pro | v17.1 雲端下載版")
+
+st.markdown("##### ⚡ Powered by Gemini 1.5 Flash | v17.2 Debug版")
 
 # --- 側邊欄 ---
 with st.sidebar:
@@ -91,7 +98,9 @@ with st.sidebar:
 # --- 數據函數 ---
 def calculate_indicators(df):
     df['9_High'] = df['High'].rolling(9).max(); df['9_Low'] = df['Low'].rolling(9).min()
-    df['RSV'] = (df['Close'] - df['9_Low']) / (df['9_High'] - df['9_Low']) * 100
+    denominator = df['9_High'] - df['9_Low']
+    # 防呆：避免分母為 0
+    df['RSV'] = np.where(denominator != 0, (df['Close'] - df['9_Low']) / denominator * 100, 50)
     df['K'] = df['RSV'].ewm(com=2).mean(); df['D'] = df['K'].ewm(com=2).mean()
     df['EMA12'] = df['Close'].ewm(span=12, adjust=False).mean(); df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
     df['DIF'] = df['EMA12'] - df['EMA26']; df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
@@ -99,6 +108,7 @@ def calculate_indicators(df):
     return df
 
 def calculate_breakout_probs(df, step_percent=1.0):
+    df = df.copy() # 避免 SettingWithCopyWarning
     df['Prev_Close'] = df['Close'].shift(1); df['Prev_Open'] = df['Open'].shift(1); df['Prev_High'] = df['High'].shift(1); df['Prev_Low'] = df['Low'].shift(1)
     df['Is_Up'] = df['Prev_Close'] > df['Prev_Open']; df['Is_Down'] = df['Prev_Close'] <= df['Prev_Open']
     n = len(df); df['Weight'] = np.linspace(0.1, 1.0, n)
@@ -113,6 +123,7 @@ def calculate_breakout_probs(df, step_percent=1.0):
         stats.append({'Level': i, 'Up_Bull': get_prob('Is_Up', hit_high), 'Down_Bull': get_prob('Is_Up', hit_low), 'Up_Bear': get_prob('Is_Down', hit_high), 'Down_Bear': get_prob('Is_Down', hit_low)})
     return pd.DataFrame(stats)
 
+@st.cache_data(ttl=300)
 def get_comprehensive_data(stock_id, days):
     end_date = datetime.date.today(); start_date = end_date - datetime.timedelta(days=days + 730)
     df_chips = pd.DataFrame()
@@ -127,13 +138,26 @@ def get_comprehensive_data(stock_id, days):
                 trust = raw_inst[raw_inst['name'] == 'Investment_Trust'].copy(); trust['投信'] = trust['buy'] - trust['sell']
                 df_chips = pd.merge(foreign[['date', '外資']], trust[['date', '投信']], on='date', how='outer').fillna(0)
     except: pass
+    
     try:
-        df_price = yf.download(f"{stock_id}.TW", start=start_date.strftime('%Y-%m-%d'), progress=False, auto_adjust=True)
+        # 加入 threads=False 增加穩定性
+        df_price = yf.download(f"{stock_id}.TW", start=start_date.strftime('%Y-%m-%d'), progress=False, auto_adjust=True, threads=False)
+        if df_price is None or df_price.empty: return None, None, None
+        
         if isinstance(df_price.columns, pd.MultiIndex): df_price.columns = df_price.columns.get_level_values(0)
-        df_price = df_price.reset_index(); df_price['date'] = df_price['Date'].dt.strftime('%Y-%m-%d')
+        df_price = df_price.reset_index()
+        
+        # 修正 yfinance date 欄位名稱可能不一致的問題
+        if 'Date' in df_price.columns: df_price['date'] = df_price['Date'].dt.strftime('%Y-%m-%d')
+        elif 'date' in df_price.columns: df_price['date'] = pd.to_datetime(df_price['date']).dt.strftime('%Y-%m-%d')
+        else: return None, None, None # 沒有日期欄位
+
         df_price['MA5'] = df_price['Close'].rolling(window=5).mean(); df_price['MA20'] = df_price['Close'].rolling(window=20).mean(); df_price['MA60'] = df_price['Close'].rolling(window=60).mean()
         df_price = calculate_indicators(df_price)
-    except: return None, None, None
+    except Exception as e: 
+        print(f"Stock Data Error: {e}")
+        return None, None, None
+        
     df_probs = calculate_breakout_probs(df_price.copy(), 1.0)
     if not df_chips.empty: merged = pd.merge(df_price, df_chips, on='date', how='left').fillna(0)
     else: merged = df_price; merged['外資'] = 0; merged['投信'] = 0
@@ -153,10 +177,18 @@ def get_finmind_per(stock_id):
 
 def get_fundamentals(stock_id):
     try:
-        stock = yf.Ticker(f"{stock_id}.TW"); info = stock.info
-        raw_yield = info.get('dividendYield', 0)
-        fmt_yield = round(raw_yield * 100, 2) if raw_yield and raw_yield < 1 else (round(raw_yield, 2) if raw_yield else 'N/A')
-        return {"P/E": round(info.get('trailingPE', 0), 2) if info.get('trailingPE') else 'N/A', "EPS": round(info.get('trailingEps', 0), 2) if info.get('trailingEps') else 'N/A', "Yield": fmt_yield, "Cap": round(info.get('marketCap', 0)/100000000, 2) if info.get('marketCap') else 'N/A', "Name": info.get('longName', stock_id), "Sector": info.get('sector', 'N/A'), "Summary": info.get('longBusinessSummary', '暫無描述')}
+        stock = yf.Ticker(f"{stock_id}.TW")
+        info = stock.fast_info # 改用 fast_info 避免卡死
+        # 注意：fast_info 欄位與 info 不同
+        return {
+            "P/E": "N/A", # fast_info 無 PE
+            "EPS": "N/A", 
+            "Yield": "N/A", 
+            "Cap": round(info.market_cap/100000000, 2) if info.market_cap else 'N/A', 
+            "Name": stock_id, 
+            "Sector": "TW Stock", 
+            "Summary": "No Data"
+        }
     except: return {}
 
 def get_revenue_data(stock_id):
@@ -174,13 +206,7 @@ def get_revenue_data(stock_id):
                 df = df.sort_values('date', ascending=False).head(12)
                 return pd.DataFrame({'期間': df['date'].dt.strftime('%Y-%m'), '營收(億)': round(df['revenue']/100000000, 2), '月增%': df['MoM'].map('{:,.2f}'.format), '年增%': df['YoY'].map('{:,.2f}'.format), '來源': 'FinMind'})
     except: pass
-    try:
-        stock = yf.Ticker(f"{stock_id}.TW"); rev = stock.quarterly_financials.loc['Total Revenue'].sort_index()
-        df_y = pd.DataFrame({'revenue': rev})
-        df_y['qoq'] = df_y['revenue'].pct_change() * 100; df_y['yoy'] = df_y['revenue'].pct_change(periods=4) * 100
-        df_y = df_y.sort_index(ascending=False).head(4)
-        return pd.DataFrame({'期間': df_y.index.strftime('%Y-%m'), '營收(億)': round(df_y['revenue']/100000000, 2), '月增%': df_y['qoq'].map('{:,.2f}'.format), '年增%': df_y['yoy'].map('{:,.2f}'.format), '來源': 'Yahoo (季)'})
-    except: return pd.DataFrame()
+    return pd.DataFrame()
 
 def get_google_news(stock_id):
     try:
@@ -204,10 +230,12 @@ if run_analysis:
             df, _, df_probs = get_comprehensive_data(target_stock, analysis_days)
             fundamentals = get_fundamentals(target_stock)
             finmind_per = get_finmind_per(target_stock)
+            
             if finmind_per and df is not None and not df.empty:
                 current_price = df.iloc[-1]['Close']
                 fundamentals['P/E'] = finmind_per['P/E']; fundamentals['Yield'] = finmind_per['Yield']
                 if finmind_per['P/E'] > 0: fundamentals['EPS'] = round(current_price / finmind_per['P/E'], 2)
+            
             news_list = get_google_news(target_stock)
             df_revenue = get_revenue_data(target_stock)
             
@@ -268,6 +296,7 @@ if run_analysis:
 
                     try:
                         genai.configure(api_key=GEMINI_API_KEY_GLOBAL)
+                        # 🔥 確認這裡是用 1.5-flash
                         model = genai.GenerativeModel('models/gemini-1.5-flash')
                         
                         if enable_wargame:
@@ -297,9 +326,7 @@ if run_analysis:
                                     full_response += chunk.text
                                     response_container.markdown(full_response)
                                 
-                                # 🔥 v17.1 新增：下載按鈕 (Download Button)
                                 st.markdown("---")
-                                # 準備 Markdown 內容
                                 full_report_md = f"""
 # Alpha Strategist 戰情報告 ({target_stock})
 **日期：** {datetime.datetime.now().strftime("%Y-%m-%d")}
@@ -316,7 +343,6 @@ if run_analysis:
 ## ⚔️ 總司令決策 (Final Order)
 {full_response}
 """
-                                # 下載按鈕元件
                                 st.download_button(
                                     label="💾 下載戰報 (Markdown)",
                                     data=full_report_md,
@@ -329,7 +355,6 @@ if run_analysis:
                             with st.status("🧠 深度分析中...", expanded=True):
                                 response = model.generate_content(prompt_blue)
                                 st.markdown(response.text)
-                                # 單一模式的下載按鈕
                                 st.download_button(
                                     label="💾 下載分析報告",
                                     data=response.text,
@@ -340,6 +365,3 @@ if run_analysis:
                     except Exception as e: st.error(f"AI Error: {e}")
 
             else: st.error("⚠️ 查無數據")
-
-
-
