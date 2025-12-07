@@ -255,7 +255,7 @@ if run_analysis:
 
                     try:
                         genai.configure(api_key=GEMINI_API_KEY_GLOBAL)
-                        model = genai.GenerativeModel('models/gemini-1.5-flash')')
+                        model = genai.GenerativeModel('models/gemini-1.5-flash')
                         
                         if enable_wargame:
                             with st.status("🔵 藍軍參謀：分析中...", expanded=True) as status:
@@ -327,4 +327,5 @@ if run_analysis:
                     except Exception as e: st.error(f"AI Error: {e}")
 
             else: st.error("⚠️ 查無數據")
+
 
