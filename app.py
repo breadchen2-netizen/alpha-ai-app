@@ -38,7 +38,6 @@ st.markdown("""
     button[data-baseweb="tab"][aria-selected="true"] { background-color: #334155 !important; color: #ffffff !important; }
     div[data-testid="stTable"] { color: white !important; }
     thead tr th { background-color: #1e293b !important; color: #38bdf8 !important; }
-    span[data-baseweb="tag"] { background-color: #334155 !important; }
     
     .role-box { padding: 15px; border-radius: 8px; margin-bottom: 12px; border-left: 5px solid; font-size: 0.95rem; line-height: 1.6; }
     .blue-team { background-color: #1e293b; border-color: #3b82f6; color: #e2e8f0; }
@@ -49,29 +48,57 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 Alpha Strategist AI")
-st.markdown("##### ⚡ Powered by Hybrid AI (Pro/Flash) | v23.0 混合動力版")
+st.markdown("##### ⚡ Powered by Gemini Auto-Adapt | v19.2 模型自適應版")
 
-# 🔥 1. 全域變數初始化
+# 🔥 全域變數初始化
 target_stock_sidebar = "2330"
-target_stock = "2330" 
+target_stock = "2330"
 enable_wargame = False
 wargame_mode = "單一模式"
-# 預設掃描清單 (可擴充)
-default_scanner_options = [
-    "2330 台積電", "2317 鴻海", "2454 聯發科", "2382 廣達", "3231 緯創", "2376 技嘉",
-    "2603 長榮", "2609 陽明", "2615 萬海",
-    "2881 富邦金", "2882 國泰金"
-]
-selected_scanner_items = ["2330 台積電", "2317 鴻海", "2376 技嘉"] # 預設勾選
-strategy_profile = "穩健價值型"
+scanner_list = "2330 2317 2454 2603 2376 3231"
 valid_gemini = "".join(GEMINI_API_KEY_GLOBAL.split())
 valid_finmind = "".join(FINMIND_TOKEN_GLOBAL.split())
+
+# 🔥 新增：自動尋找最佳模型
+@st.cache_resource
+def get_best_model_name(api_key):
+    try:
+        genai.configure(api_key=api_key)
+        # 列出所有可用模型
+        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        # 1. 優先找 2.5 或 2.0 Flash (速度快、省額度)
+        for m in models:
+            if 'flash' in m.lower() and 'legacy' not in m.lower() and ('2.5' in m or '2.0' in m):
+                return m
+        
+        # 2. 其次找任何 Flash
+        for m in models:
+            if 'flash' in m.lower() and 'legacy' not in m.lower():
+                return m
+        
+        # 3. 找 Pro
+        for m in models:
+            if 'pro' in m.lower() and 'legacy' not in m.lower():
+                return m
+        
+        # 4. 如果都找不到，回傳第一個可用的
+        if models: return models[0]
+    except:
+        pass
+    return "gemini-1.5-flash" # 最終保底 (如果 API 連線失敗)
 
 # --- 側邊欄 ---
 with st.sidebar:
     st.header("⚙️ 戰術設定")
-    if valid_gemini: st.success("✅ Gemini 金鑰鎖定")
+    
+    if valid_gemini: 
+        st.success("✅ Gemini 金鑰鎖定")
+        # 自動偵測模型並顯示
+        best_model = get_best_model_name(valid_gemini)
+        st.caption(f"🤖 目前使用模型：`{best_model}`")
     else: st.error("❌ 缺 Gemini Key")
+    
     if valid_finmind: st.success("✅ FinMind Token 鎖定")
     else: st.warning("⚠️ 缺 FinMind Token")
 
@@ -79,11 +106,10 @@ with st.sidebar:
     app_mode = st.radio("📡 戰術模式", ["🎯 單兵作戰 (深度分析)", "📡 戰情雷達 (多股掃描)"])
 
     st.markdown("---")
-    
     if app_mode == "🎯 單兵作戰 (深度分析)":
         st.subheader("📋 自選監控")
-        # 這裡用 Radio (單選)
-        selected_ticker_raw = st.radio("快速切換", default_scanner_options[:6]) # 取前幾檔當範例
+        default_list = ["2330 台積電", "2317 鴻海", "2603 長榮", "2376 技嘉", "3231 緯創", "2454 聯發科"]
+        selected_ticker_raw = st.radio("快速切換", default_list)
         target_stock_sidebar = selected_ticker_raw.split(" ")[0]
         
         st.subheader("🎯 兵棋推演")
@@ -92,25 +118,20 @@ with st.sidebar:
             wargame_mode = st.radio("紅軍風格", ["🔴 傳統主力 (理性)", "🟣 Grok 合作 (安全)"], index=1)
     else:
         st.subheader("📡 掃描清單")
-        # 🔥 改版：使用 Multiselect (複選+搜尋)
-        selected_scanner_items = st.multiselect(
-            "選擇掃描標的 (可複選/搜尋)",
-            options=default_scanner_options,
-            default=["2330 台積電", "2317 鴻海", "2376 技嘉"]
-        )
-        st.caption(f"已選擇 {len(selected_scanner_items)} 檔股票。")
+        scanner_list = st.text_area("輸入代號 (空白隔開)", scanner_list)
+        st.caption("AI 將會批次掃描並評比這些股票。")
 
     st.markdown("---")
     strategy_profile = st.radio("投資輪廓", ["穩健價值型", "激進動能型"], index=0)
 
-# --- 核心數據函數 (含防呆機制) ---
+# --- 工具函數 (保留 v19.1 的優化) ---
 
 def safe_api_call(url, params, max_retries=2):
     for attempt in range(max_retries):
         try:
             r = requests.get(url, params=params, timeout=5)
             if r.status_code == 200: return r.json()
-            elif r.status_code == 429: time.sleep(2); continue 
+            elif r.status_code == 429: time.sleep(1); continue
         except: time.sleep(1)
     return None
 
@@ -131,7 +152,7 @@ def calculate_breakout_probs(df, step_percent=1.0):
     df = df.copy()
     df['Prev_Close'] = df['Close'].shift(1); df['Prev_Open'] = df['Open'].shift(1); df['Prev_High'] = df['High'].shift(1); df['Prev_Low'] = df['Low'].shift(1)
     df['Is_Up'] = df['Prev_Close'] > df['Prev_Open']; df['Is_Down'] = df['Prev_Close'] <= df['Prev_Open']
-    n = len(df); df['Weight'] = np.linspace(0.1, 1.0, n)
+    n = len(df); df['Weight'] = np.exp(np.linspace(-2, 0, n))
     stats = []
     for i in range(1, 4):
         dist = df['Prev_Close'] * (step_percent * i / 100)
@@ -143,7 +164,7 @@ def calculate_breakout_probs(df, step_percent=1.0):
     return pd.DataFrame(stats)
 
 @st.cache_data(ttl=300) 
-def get_stock_data_robust(stock_id, days):
+def get_technical_chips(stock_id, days):
     end_date = datetime.date.today(); start_date = end_date - datetime.timedelta(days=days + 150)
     df_chips = pd.DataFrame()
     try:
@@ -170,9 +191,8 @@ def get_stock_data_robust(stock_id, days):
 
     df_probs = calculate_breakout_probs(df_price.copy(), 1.0)
     if not df_chips.empty: merged = pd.merge(df_price, df_chips, on='date', how='left').fillna(0)
-    else: 
-        merged = df_price.copy(); merged['外資'] = 0; merged['投信'] = 0
-    return merged.tail(days), None, df_probs
+    else: merged = df_price; merged['外資'] = 0; merged['投信'] = 0
+    return merged.tail(days), df_chips, df_probs
 
 @st.cache_data(ttl=3600)
 def get_finmind_per(stock_id):
@@ -215,45 +235,17 @@ def save_report_to_md(stock_id, price, content):
     date_str = datetime.datetime.now().strftime("%Y-%m-%d")
     return f"# {stock_id} 策略研報\n- **日期：** {date_str}\n- **收盤價：** {price}\n\n---\n## AI 決策摘要\n{content}\n\n---\n*Created by Alpha Strategist AI*"
 
-# 🔥 新增：混合 AI 呼叫函數
-def hybrid_ai_generate(prompt, mode="pro"):
-    """
-    mode="pro": 優先使用 2.5-pro, 失敗則降級 flash
-    mode="flash": 強制使用 1.5-flash (適合批次)
-    """
-    try:
-        genai.configure(api_key=valid_gemini)
-        
-        # 1. 如果指定 Pro 模式
-        if mode == "pro":
-            try:
-                # 嘗試使用最強模型
-                model = genai.GenerativeModel('models/gemini-2.5-pro') # 或 1.5-pro
-                return model.generate_content(prompt), "Gemini 2.5 Pro"
-            except Exception as e:
-                # 如果 Pro 失敗 (429 or 404), 默默降級
-                print(f"Pro model failed: {e}, falling back to Flash")
-                pass 
-        
-        # 2. Flash 模式 (預設或降級)
-        model = genai.GenerativeModel('models/gemini-1.5-flash')
-        return model.generate_content(prompt), "Gemini 1.5 Flash"
-        
-    except Exception as e:
-        raise e
-
 # --- 批次掃描 ---
-def run_batch_scan(ticker_list):
+def run_batch_scan(ticker_list, model_name):
     summary_data = []
     progress_bar = st.progress(0); status_text = st.empty()
-    # 從選單中提取代號
-    tickers = [t.split(" ")[0] for t in ticker_list] 
+    tickers = [t.strip() for t in ticker_list.replace(',', ' ').split(' ') if t.strip()]
     total = len(tickers)
     
     for i, stock_id in enumerate(tickers):
         status_text.text(f"📡 正在掃描 {stock_id} ... ({i+1}/{total})")
         try:
-            df, _, _ = get_stock_data_robust(stock_id, 60)
+            df, _, _ = get_technical_chips(stock_id, 60)
             finmind_per = get_finmind_per(stock_id)
             if df is not None and not df.empty:
                 last = df.iloc[-1]
@@ -265,8 +257,7 @@ def run_batch_scan(ticker_list):
                 summary_data.append({"代號": stock_id, "收盤": last['Close'], "趨勢": trend, "籌碼": chips_status, "P/E": pe})
         except: pass
         progress_bar.progress((i + 1) / total)
-        time.sleep(3) 
-        
+        time.sleep(0.5) 
     status_text.empty(); progress_bar.empty()
     return pd.DataFrame(summary_data)
 
@@ -283,7 +274,7 @@ if app_mode == "🎯 單兵作戰 (深度分析)":
         if not valid_gemini: st.error("⛔ 請檢查 Gemini Key")
         else:
             with st.spinner(f"📡 戰情室連線中..."):
-                df, _, df_probs = get_stock_data_robust(target_stock, analysis_days)
+                df, _, df_probs = get_technical_chips(target_stock, analysis_days)
                 fundamentals = get_fundamentals(target_stock)
                 finmind_per = get_finmind_per(target_stock)
                 
@@ -331,11 +322,12 @@ if app_mode == "🎯 單兵作戰 (深度分析)":
                         
                         prompt = f"分析 {target_stock}。\n數據：{data_for_ai}\n新聞：{news_str}\n請給出操作建議。"
                         try:
-                            # 🔥 混合動力：單兵模式優先嘗試 Pro，失敗轉 Flash
-                            with st.status("🧠 AI 戰略思考中...", expanded=True) as status:
-                                response, model_used = hybrid_ai_generate(prompt, mode="pro")
-                                status.update(label=f"✅ 分析完成 (使用模型: {model_used})", state="complete")
-                                
+                            genai.configure(api_key=valid_gemini)
+                            # 🔥 使用自動偵測到的最佳模型
+                            model = genai.GenerativeModel(best_model)
+                            
+                            with st.status(f"🧠 AI 思考中 ({best_model})..."):
+                                response = model.generate_content(prompt)
                                 st.markdown(response.text)
                                 st.download_button("💾 下載報告", response.text, file_name="report.md")
                                 
@@ -347,18 +339,15 @@ else:
     st.subheader("📡 板塊戰情雷達")
     col1, col2 = st.columns([3, 1])
     with col1: run_scan = st.button("🚀 啟動全域掃描", type="primary", use_container_width=True)
-    
     if run_scan:
-        if not selected_scanner_items:
-            st.warning("請先在左側選擇至少一檔股票！")
-        else:
-            with st.spinner("📡 掃描中..."):
-                res = run_batch_scan(selected_scanner_items)
-                if not res.empty:
-                    st.dataframe(res, use_container_width=True)
-                    try:
-                        # 🔥 戰情雷達：強制使用 Flash (批次量大)
-                        prompt = f"評比這些股票：\n{res.to_string()}\n選出 MVP 和 危險名單。"
-                        response, model_used = hybrid_ai_generate(prompt, mode="flash")
-                        st.markdown(f"<div class='role-box commander'><b>🏆 總司令評比 ({model_used}):</b><br>{response.text}</div>", unsafe_allow_html=True)
-                    except: st.warning("AI 額度不足，無法評比")
+        with st.spinner("📡 掃描中..."):
+            res = run_batch_scan(scanner_list, best_model) # 傳入模型名稱
+            if not res.empty:
+                st.dataframe(res, use_container_width=True)
+                try:
+                    genai.configure(api_key=valid_gemini)
+                    model = genai.GenerativeModel(best_model)
+                    prompt = f"評比這些股票：\n{res.to_string()}\n選出 MVP 和 危險名單。"
+                    resp = model.generate_content(prompt)
+                    st.markdown(f"<div class='role-box commander'>{resp.text}</div>", unsafe_allow_html=True)
+                except: st.warning("AI 額度不足，無法評比")
