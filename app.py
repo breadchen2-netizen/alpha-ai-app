@@ -47,6 +47,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🚀 Alpha Strategist AI")
+with st.expander("🔍 工程師診斷模式：查看可用模型"):
+    st.write(f"當前 SDK 版本: {genai.__version__}") # 檢查版本，如果低於 0.5.0 就一定會失敗
+    
+    try:
+        genai.configure(api_key=valid_gemini) # 確保 key 有設定進去
+        available_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                available_models.append(m.name)
+        st.write("✅ 你的 API Key 可以存取以下模型：")
+        st.code(available_models)
+    except Exception as e:
+        st.error(f"❌ 無法列出模型：{e}")
 st.markdown("##### ⚡ Powered by Gemini 2.5 Pro | v17.1 雲端下載版")
 
 # --- 側邊欄 ---
@@ -327,5 +340,6 @@ if run_analysis:
                     except Exception as e: st.error(f"AI Error: {e}")
 
             else: st.error("⚠️ 查無數據")
+
 
 
